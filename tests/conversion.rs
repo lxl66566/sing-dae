@@ -58,6 +58,18 @@ fn dae_roundtrip_via_sing() {
 }
 
 #[test]
+fn dae_full_to_sing() {
+    let input = fs::read_to_string("assets/full.dae").expect("read");
+    let dae_config = parser::parse(&input).expect("parse dae");
+
+    let sing_config = dae_to_sing::convert(&dae_config).expect("convert to sing");
+
+    assert!(sing_config.log.is_some());
+    assert!(!sing_config.outbounds.is_empty());
+    assert!(sing_config.route.is_some());
+}
+
+#[test]
 fn sing_roundtrip_via_dae() {
     let input = fs::read_to_string("assets/config.json").expect("read");
     let original: sing_dae::singbox::config::SingBoxConfig =

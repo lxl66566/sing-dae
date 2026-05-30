@@ -15,7 +15,7 @@ fn serialize_simple_config() {
                 value: "domain".into(),
             },
         ],
-        nodes: vec![ast::KeyValue {
+        nodes: vec![ast::Entry::Tagged {
             key: "my-node".into(),
             value: "hy2://pass@host:443".into(),
         }],
@@ -23,6 +23,7 @@ fn serialize_simple_config() {
             name: "proxy".into(),
             filters: vec![],
             policy: ast::PolicyDef::MinMovingAvg,
+            extra: vec![],
         }],
         routing: ast::RoutingSection {
             rules: vec![ast::RoutingRule {

@@ -5,9 +5,9 @@ pub struct DaeConfig {
     #[serde(default)]
     pub global: Vec<KeyValue>,
     #[serde(default)]
-    pub subscriptions: Vec<KeyValue>,
+    pub subscriptions: Vec<Entry>,
     #[serde(default)]
-    pub nodes: Vec<KeyValue>,
+    pub nodes: Vec<Entry>,
     #[serde(default)]
     pub dns: DnsSection,
     #[serde(default)]
@@ -20,6 +20,12 @@ pub struct DaeConfig {
 pub struct KeyValue {
     pub key: String,
     pub value: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub enum Entry {
+    Tagged { key: String, value: String },
+    Untagged(String),
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
@@ -47,6 +53,8 @@ pub struct GroupDef {
     pub filters: Vec<FilterDef>,
     #[serde(default)]
     pub policy: PolicyDef,
+    #[serde(default)]
+    pub extra: Vec<KeyValue>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -62,6 +70,7 @@ pub enum PolicyDef {
     Fixed(usize),
     Min,
     MinMovingAvg,
+    MinAvg10,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]

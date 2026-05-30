@@ -1,5 +1,6 @@
 use crate::dae::ast::{
-    DaeConfig, DnsSection, FilterDef, GroupDef, KeyValue, PolicyDef, RoutingRule, RoutingSection,
+    DaeConfig, DnsSection, Entry, FilterDef, GroupDef, KeyValue, PolicyDef, RoutingRule,
+    RoutingSection,
 };
 use crate::error::{AppError, Result};
 use crate::singbox::config::SingBoxConfig;
@@ -39,14 +40,14 @@ fn build_global(sing: &SingBoxConfig) -> Vec<KeyValue> {
 
 // ---- Proxy Outbounds -> Nodes ----
 
-fn build_nodes(sing: &SingBoxConfig) -> Result<Vec<KeyValue>> {
+fn build_nodes(sing: &SingBoxConfig) -> Result<Vec<Entry>> {
     sing.outbounds
         .iter()
         .filter(|ob| is_proxy_type(&ob.outbound_type))
         .map(|ob| {
             let tag = ob.tag.as_deref().unwrap_or(&ob.outbound_type);
             let link = build_node_link(ob)?;
-            Ok(KeyValue {
+            Ok(Entry::Tagged {
                 key: tag.to_string(),
                 value: link,
             })
@@ -145,6 +146,7 @@ fn build_groups(sing: &SingBoxConfig) -> Vec<GroupDef> {
                 name: ob.tag.clone().unwrap_or_default(),
                 filters,
                 policy,
+                extra: vec![],
             }
         })
         .collect()
@@ -443,11 +445,15 @@ mod tests {
         };
         let dae = convert(&sing).unwrap();
         assert_eq!(dae.nodes.len(), 1);
-        assert_eq!(dae.nodes[0].key, "my-hy2");
-        let link = &dae.nodes[0].value;
-        assert!(link.starts_with("hy2://pass123@1.2.3.4:443/"));
-        assert!(link.contains("sni=example.com"));
-        assert!(link.ends_with("#my-hy2"));
+        match &dae.nodes[0] {
+            Entry::Tagged { key, value } => {
+                assert_eq!(key, "my-hy2");
+                assert!(value.starts_with("hy2://pass123@1.2.3.4:443/"));
+                assert!(value.contains("sni=example.com"));
+                assert!(value.ends_with("#my-hy2"));
+            }
+            Entry::Untagged(_) => panic!("expected tagged entry"),
+        }
     }
 
     #[test]
@@ -469,12 +475,16 @@ mod tests {
             ..SingBoxConfig::default()
         };
         let dae = convert(&sing).unwrap();
-        assert_eq!(dae.nodes[0].key, "tr-node");
-        let link = &dae.nodes[0].value;
-        assert!(link.starts_with("trojan://trojanpw@5.6.7.8:8443/"));
-        assert!(link.contains("type=tcp"));
-        assert!(link.contains("security=tls"));
-        assert!(link.contains("sni=trojan.example.com"));
+        match &dae.nodes[0] {
+            Entry::Tagged { key, value } => {
+                assert_eq!(key, "tr-node");
+                assert!(value.starts_with("trojan://trojanpw@5.6.7.8:8443/"));
+                assert!(value.contains("type=tcp"));
+                assert!(value.contains("security=tls"));
+                assert!(value.contains("sni=trojan.example.com"));
+            }
+            Entry::Untagged(_) => panic!("expected tagged entry"),
+        }
     }
 
     #[test]
@@ -492,7 +502,10 @@ mod tests {
         };
         let dae = convert(&sing).unwrap();
         assert_eq!(dae.nodes.len(), 1);
-        assert_eq!(dae.nodes[0].key, "my-hy2");
+        match &dae.nodes[0] {
+            Entry::Tagged { key, .. } => assert_eq!(key, "my-hy2"),
+            Entry::Untagged(_) => panic!("expected tagged entry"),
+        }
     }
 
     #[test]

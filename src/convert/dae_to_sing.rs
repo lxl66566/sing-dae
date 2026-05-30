@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use crate::dae::ast::{DaeConfig, FilterDef, PolicyDef, RoutingRule};
+use crate::dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule};
 use crate::error::{AppError, Result};
 use crate::singbox::config::{Dns, DnsRule, DnsServer, Log, Outbound, Route, RouteRule, SingBoxConfig, TlsConfig};
 
@@ -8,7 +8,14 @@ use crate::singbox::config::{Dns, DnsRule, DnsServer, Log, Outbound, Route, Rout
 pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
     let log = build_log(dae);
 
-    let node_tags: Vec<String> = dae.nodes.iter().map(|n| n.key.clone()).collect();
+    let node_tags: Vec<String> = dae
+        .nodes
+        .iter()
+        .filter_map(|n| match n {
+            Entry::Tagged { key, .. } => Some(key.clone()),
+            Entry::Untagged(_) => None,
+        })
+        .collect();
     let node_outbounds = build_node_outbounds(dae)?;
     let group_outbounds = build_group_outbounds(dae, &node_tags)?;
 
@@ -46,16 +53,33 @@ fn build_log(dae: &DaeConfig) -> Option<Log> {
 // ---- Nodes -> Outbounds ----
 
 fn build_node_outbounds(dae: &DaeConfig) -> Result<Vec<Outbound>> {
-    dae.nodes
+    let outbounds: Vec<Outbound> = dae
+        .nodes
         .iter()
-        .map(|node| parse_node_link(&node.key, &node.value))
-        .collect()
+        .filter_map(|entry| match entry {
+            Entry::Tagged { key, value } => parse_node_link(key, value).ok(),
+            Entry::Untagged(val) => {
+                let tag = format!("untagged_{}", &val[..val.len().min(8)]);
+                parse_node_link(&tag, val).ok()
+            }
+        })
+        .collect();
+    Ok(outbounds)
 }
 
 fn parse_node_link(tag: &str, link: &str) -> Result<Outbound> {
     let (scheme, rest) = link
         .split_once("://")
         .ok_or_else(|| AppError::Conversion(format!("invalid node link: {link}")))?;
+
+    if rest.contains(" -> ") {
+        return Err(AppError::Conversion(format!("chain nodes not supported: {link}")));
+    }
+
+    let fragment = match rest.rfind('#') {
+        Some(idx) => &rest[idx + 1..],
+        None => "",
+    };
 
     let main_part = match rest.rfind('#') {
         Some(idx) => &rest[..idx],
@@ -67,20 +91,23 @@ fn parse_node_link(tag: &str, link: &str) -> Result<Outbound> {
         None => (main_part, None),
     };
 
-    let at_pos = authority
-        .rfind('@')
-        .ok_or_else(|| AppError::Conversion(format!("missing '@' in node link: {link}")))?;
-    let credential = &authority[..at_pos];
-    let host_port = &authority[at_pos + 1..];
+    let at_pos = authority.rfind('@');
+    let (credential, host_port) = match at_pos {
+        Some(pos) => (&authority[..pos], &authority[pos + 1..]),
+        None => ("", authority),
+    };
 
-    let colon_pos = host_port
-        .rfind(':')
-        .ok_or_else(|| AppError::Conversion(format!("missing port in node link: {link}")))?;
-    let host = host_port[..colon_pos].to_string();
-    let port: u16 = host_port[colon_pos + 1..]
-        .trim_end_matches('/')
-        .parse()
-        .map_err(|_| AppError::Conversion(format!("invalid port in node link: {link}")))?;
+    let colon_pos = host_port.rfind(':');
+    let (host, port) = match colon_pos {
+        Some(pos) => (
+            host_port[..pos].to_string(),
+            host_port[pos + 1..]
+                .trim_end_matches('/')
+                .parse::<u16>()
+                .ok(),
+        ),
+        None => (host_port.to_string(), None),
+    };
 
     let params = parse_query_params(query.unwrap_or(""));
     let sni = params.get("sni").cloned();
@@ -110,7 +137,7 @@ fn parse_node_link(tag: &str, link: &str) -> Result<Outbound> {
         outbound_type: outbound_type.to_string(),
         tag: Some(tag.to_string()),
         server: Some(host),
-        server_port: Some(port),
+        server_port: port,
         password,
         up_mbps: None,
         down_mbps: None,
@@ -144,7 +171,7 @@ fn build_group_outbounds(dae: &DaeConfig, all_node_tags: &[String]) -> Result<Ve
             let matched = filter_nodes(&group.filters, all_node_tags);
             let outbound_type = match &group.policy {
                 PolicyDef::Random | PolicyDef::Fixed(_) => "selector",
-                PolicyDef::Min | PolicyDef::MinMovingAvg => "urltest",
+                PolicyDef::Min | PolicyDef::MinMovingAvg | PolicyDef::MinAvg10 => "urltest",
             };
             Ok(Outbound {
                 outbound_type: outbound_type.to_string(),
@@ -581,7 +608,7 @@ mod tests {
     #[test]
     fn converts_hy2_node() {
         let dae = DaeConfig {
-            nodes: vec![KeyValue {
+            nodes: vec![Entry::Tagged {
                 key: "my-hy".into(),
                 value: "hy2://pass123@1.2.3.4:443/?sni=example.com#display".into(),
             }],
@@ -601,7 +628,7 @@ mod tests {
     #[test]
     fn converts_trojan_node() {
         let dae = DaeConfig {
-            nodes: vec![KeyValue {
+            nodes: vec![Entry::Tagged {
                 key: "my-tr".into(),
                 value: "trojan://pw@host:8080/?type=tcp&security=tls&sni=host#name".into(),
             }],
@@ -627,8 +654,8 @@ mod tests {
     fn group_urltest_with_name_filter() {
         let dae = DaeConfig {
             nodes: vec![
-                KeyValue { key: "jp-1".into(), value: "hy2://p@h:1".into() },
-                KeyValue { key: "us-1".into(), value: "hy2://p@h:2".into() },
+                Entry::Tagged { key: "jp-1".into(), value: "hy2://p@h:1".into() },
+                Entry::Tagged { key: "us-1".into(), value: "hy2://p@h:2".into() },
             ],
             groups: vec![GroupDef {
                 name: "jp".into(),
@@ -637,6 +664,7 @@ mod tests {
                     latency_offset: None,
                 }],
                 policy: PolicyDef::MinMovingAvg,
+                extra: vec![],
             }],
             ..DaeConfig::default()
         };
@@ -650,8 +678,8 @@ mod tests {
     fn group_selector_with_negated_filter() {
         let dae = DaeConfig {
             nodes: vec![
-                KeyValue { key: "jp-1".into(), value: "hy2://p@h:1".into() },
-                KeyValue { key: "us-1".into(), value: "hy2://p@h:2".into() },
+                Entry::Tagged { key: "jp-1".into(), value: "hy2://p@h:1".into() },
+                Entry::Tagged { key: "us-1".into(), value: "hy2://p@h:2".into() },
             ],
             groups: vec![GroupDef {
                 name: "no_jp".into(),
@@ -660,6 +688,7 @@ mod tests {
                     latency_offset: None,
                 }],
                 policy: PolicyDef::Random,
+                extra: vec![],
             }],
             ..DaeConfig::default()
         };

@@ -28,10 +28,10 @@ pub fn parse(input: &str) -> crate::error::Result<ast::DaeConfig> {
                 config.global = parse_kv_block(inner);
             }
             Rule::subscription_section => {
-                config.subscriptions = parse_kv_block(inner);
+                config.subscriptions = parse_entry_block(inner);
             }
             Rule::node_section => {
-                config.nodes = parse_kv_block(inner);
+                config.nodes = parse_entry_block(inner);
             }
             Rule::dns_section => {
                 config.dns = parse_dns_section(inner);
@@ -51,12 +51,7 @@ pub fn parse(input: &str) -> crate::error::Result<ast::DaeConfig> {
 
 fn parse_kv_block(pair: pest::iterators::Pair<Rule>) -> Vec<ast::KeyValue> {
     pair.into_inner()
-        .filter(|p| {
-            matches!(
-                p.as_rule(),
-                Rule::global_kv | Rule::sub_entry | Rule::node_entry
-            )
-        })
+        .filter(|p| p.as_rule() == Rule::global_kv)
         .map(|p| {
             let mut inner = p.into_inner();
             let key = inner
@@ -68,6 +63,38 @@ fn parse_kv_block(pair: pest::iterators::Pair<Rule>) -> Vec<ast::KeyValue> {
                 .map(|v| clean_value(v.as_str()))
                 .unwrap_or_default();
             ast::KeyValue { key, value }
+        })
+        .collect()
+}
+
+fn parse_entry_block(pair: pest::iterators::Pair<Rule>) -> Vec<ast::Entry> {
+    pair.into_inner()
+        .filter(|p| p.as_rule() == Rule::sub_entry || p.as_rule() == Rule::node_entry)
+        .filter_map(|p| {
+            let inner = p.into_inner().next()?;
+            match inner.as_rule() {
+                Rule::sub_tagged | Rule::node_tagged => {
+                    let mut parts = inner.into_inner();
+                    let key = parts
+                        .next()
+                        .map(|k| k.as_str().trim().to_owned())
+                        .unwrap_or_default();
+                    let value = parts
+                        .next()
+                        .map(|v| clean_value(v.as_str()))
+                        .unwrap_or_default();
+                    Some(ast::Entry::Tagged { key, value })
+                }
+                Rule::sub_untagged | Rule::node_untagged => {
+                    let value = inner
+                        .into_inner()
+                        .next()
+                        .map(|v| clean_value(v.as_str()))
+                        .unwrap_or_default();
+                    Some(ast::Entry::Untagged(value))
+                }
+                _ => None,
+            }
         })
         .collect()
 }
@@ -149,6 +176,7 @@ fn parse_group_section(pair: pest::iterators::Pair<Rule>) -> Vec<ast::GroupDef> 
 
             let mut filters = Vec::new();
             let mut policy = ast::PolicyDef::default();
+            let mut extra = Vec::new();
 
             for content in inner {
                 if content.as_rule() != Rule::group_content {
@@ -164,6 +192,9 @@ fn parse_group_section(pair: pest::iterators::Pair<Rule>) -> Vec<ast::GroupDef> 
                     Rule::policy_line => {
                         policy = parse_policy_line(inner_rule);
                     }
+                    Rule::group_kv => {
+                        extra.push(parse_single_kv(inner_rule));
+                    }
                     _ => {}
                 }
             }
@@ -172,6 +203,7 @@ fn parse_group_section(pair: pest::iterators::Pair<Rule>) -> Vec<ast::GroupDef> 
                 name,
                 filters,
                 policy,
+                extra,
             }
         })
         .collect()
@@ -216,6 +248,7 @@ fn parse_policy_line(pair: pest::iterators::Pair<Rule>) -> ast::PolicyDef {
         "fixed" => ast::PolicyDef::Fixed(index.unwrap_or(0)),
         "min" => ast::PolicyDef::Min,
         "min_moving_avg" => ast::PolicyDef::MinMovingAvg,
+        "min_avg10" => ast::PolicyDef::MinAvg10,
         _ => ast::PolicyDef::default(),
     }
 }

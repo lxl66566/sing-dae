@@ -17,16 +17,30 @@ pub fn serialize(config: &ast::DaeConfig) -> String {
 
     if !config.subscriptions.is_empty() {
         out.push_str("subscription {\n");
-        for kv in &config.subscriptions {
-            writeln!(out, "    {}: {}", kv.key, format_value(&kv.value)).unwrap();
+        for entry in &config.subscriptions {
+            match entry {
+                ast::Entry::Tagged { key, value } => {
+                    writeln!(out, "    {key}: {}", format_value(value)).unwrap();
+                }
+                ast::Entry::Untagged(value) => {
+                    writeln!(out, "    {}", format_value(value)).unwrap();
+                }
+            }
         }
         out.push_str("}\n\n");
     }
 
     if !config.nodes.is_empty() {
         out.push_str("node {\n");
-        for kv in &config.nodes {
-            writeln!(out, "    {}: {}", kv.key, format_value(&kv.value)).unwrap();
+        for entry in &config.nodes {
+            match entry {
+                ast::Entry::Tagged { key, value } => {
+                    writeln!(out, "    {key}: {}", format_value(value)).unwrap();
+                }
+                ast::Entry::Untagged(value) => {
+                    writeln!(out, "    {}", format_value(value)).unwrap();
+                }
+            }
         }
         out.push_str("}\n\n");
     }
@@ -45,6 +59,9 @@ pub fn serialize(config: &ast::DaeConfig) -> String {
                 out.push('\n');
             }
             writeln!(out, "        policy: {}", format_policy(&group.policy)).unwrap();
+            for kv in &group.extra {
+                writeln!(out, "        {}: {}", kv.key, format_value(&kv.value)).unwrap();
+            }
             out.push_str("    }\n");
         }
         out.push_str("}\n\n");
@@ -134,5 +151,6 @@ fn format_policy(p: &ast::PolicyDef) -> String {
         ast::PolicyDef::Fixed(i) => format!("fixed({i})"),
         ast::PolicyDef::Min => "min".to_owned(),
         ast::PolicyDef::MinMovingAvg => "min_moving_avg".to_owned(),
+        ast::PolicyDef::MinAvg10 => "min_avg10".to_owned(),
     }
 }

@@ -1,6 +1,6 @@
 use std::fs;
 
-use sing_dae::dae::{ast, parser};
+use sing_dae::dae::{ast, parser, serializer};
 
 #[test]
 fn parse_fixture_dae() {
@@ -41,8 +41,13 @@ fn parse_node_section() {
     .expect("parse failed");
 
     assert_eq!(config.nodes.len(), 1);
-    assert_eq!(config.nodes[0].key, "my-node");
-    assert!(config.nodes[0].value.starts_with("hy2://"));
+    match &config.nodes[0] {
+        ast::Entry::Tagged { key, value } => {
+            assert_eq!(key, "my-node");
+            assert!(value.starts_with("hy2://"));
+        }
+        ast::Entry::Untagged(_) => panic!("expected tagged entry"),
+    }
 }
 
 #[test]
@@ -60,7 +65,6 @@ fn parse_group_section() {
     assert_eq!(config.groups[1].filters.len(), 1);
     assert!(config.groups[1].filters[0].expression.contains("regex"));
 }
-
 #[test]
 fn parse_routing_section() {
     let config = parser::parse(
@@ -84,4 +88,43 @@ fn parse_dns_section() {
     assert_eq!(config.dns.entries.len(), 1);
     assert_eq!(config.dns.upstream.len(), 1);
     assert_eq!(config.dns.request_rules.len(), 1);
+}
+
+#[test]
+fn parse_full_dae() {
+    let input = fs::read_to_string("assets/full.dae").expect("read full.dae");
+    let config = parser::parse(&input).expect("parse full.dae failed");
+
+    assert!(!config.global.is_empty(), "global should have entries");
+    assert!(!config.subscriptions.is_empty(), "subscriptions should have entries");
+    assert!(!config.nodes.is_empty(), "nodes should have entries");
+    assert!(!config.dns.upstream.is_empty(), "dns upstream should have entries");
+    assert!(!config.groups.is_empty(), "groups should have entries");
+    assert!(!config.routing.rules.is_empty(), "routing rules should exist");
+    assert!(config.routing.fallback.is_some(), "routing fallback should exist");
+}
+
+#[test]
+fn parse_subscription_untagged() {
+    let config = parser::parse(
+        "subscription {\n    my_sub: 'https://example.com/link'\n    'https://example.com/no_tag'\n}",
+    )
+    .expect("parse failed");
+
+    assert_eq!(config.subscriptions.len(), 2);
+}
+
+#[test]
+fn parse_full_dae_roundtrip() {
+    let input = fs::read_to_string("assets/full.dae").expect("read full.dae");
+    let config = parser::parse(&input).expect("parse failed");
+
+    let output = serializer::serialize(&config);
+    let reparsed = parser::parse(&output).expect("re-parse failed");
+
+    assert_eq!(config.subscriptions.len(), reparsed.subscriptions.len());
+    assert_eq!(config.nodes.len(), reparsed.nodes.len());
+    assert_eq!(config.groups.len(), reparsed.groups.len());
+    assert_eq!(config.routing.rules.len(), reparsed.routing.rules.len());
+    assert_eq!(config.dns.upstream.len(), reparsed.dns.upstream.len());
 }
