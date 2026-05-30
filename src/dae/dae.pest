@@ -1,0 +1,55 @@
+WHITESPACE = _{ " " | "\t" | "\r" | "\n" }
+COMMENT    = _{ "#" ~ (!"\n" ~ ANY)* }
+
+config = { SOI ~ section* ~ EOI }
+
+section = {
+    global_section | subscription_section | node_section
+  | dns_section | group_section | routing_section
+}
+
+global_section       = { "global" ~ "{" ~ global_kv* ~ "}" }
+subscription_section = { "subscription" ~ "{" ~ sub_entry* ~ "}" }
+node_section         = { "node" ~ "{" ~ node_entry* ~ "}" }
+dns_section          = { "dns" ~ "{" ~ dns_content* ~ "}" }
+group_section        = { "group" ~ "{" ~ group_def* ~ "}" }
+routing_section      = { "routing" ~ "{" ~ routing_content* ~ "}" }
+
+global_kv  = { key ~ ":" ~ value }
+sub_entry  = { key ~ ":" ~ value }
+node_entry = { key ~ ":" ~ value }
+
+dns_content = { dns_kv | upstream_block | dns_routing_block }
+dns_kv = { key ~ ":" ~ value }
+upstream_block = { "upstream" ~ "{" ~ upstream_entry* ~ "}" }
+upstream_entry = { key ~ ":" ~ value }
+dns_routing_block = { "routing" ~ "{" ~ dns_routing_content* ~ "}" }
+dns_routing_content = { request_block | response_block }
+request_block  = { "request" ~ "{" ~ (dns_routing_rule | dns_fallback_line)* ~ "}" }
+response_block = { "response" ~ "{" ~ (dns_routing_rule | dns_fallback_line)* ~ "}" }
+dns_routing_rule = { dns_condition ~ "->" ~ identifier }
+dns_condition = ${ (!("->" | "\n") ~ ANY)+ }
+dns_fallback_line = { "fallback" ~ ":" ~ identifier }
+
+group_def = { identifier ~ "{" ~ group_content* ~ "}" }
+group_content = { filter_line | policy_line }
+filter_line = { "filter" ~ ":" ~ filter_text }
+filter_text = ${ (!("\n") ~ ANY)* }
+policy_line = { "policy" ~ ":" ~ policy_value }
+policy_value = { identifier ~ ("(" ~ ASCII_DIGIT* ~ ")")? }
+
+routing_content = { routing_rule | fallback_line }
+routing_rule = { condition_expr ~ "->" ~ identifier }
+fallback_line = { "fallback" ~ ":" ~ identifier }
+
+key = @{ (ASCII_ALPHA | "_") ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
+value = { quoted_string | unquoted_value }
+quoted_string = ${
+    "'" ~ (!"'" ~ ANY)* ~ "'"
+  | "\"" ~ (!"\"" ~ ANY)* ~ "\""
+}
+unquoted_value = ${ (!("}" | "\n" | "#" | "\r") ~ ANY)+ }
+identifier = @{ ASCII_ALPHA ~ (ASCII_ALPHANUMERIC | "_" | "-")* }
+condition_expr = {
+    (!("->") ~ ANY)+
+}

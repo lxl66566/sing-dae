@@ -1,0 +1,615 @@
+{
+  "log": {
+    "level": "warn",
+    "timestamp": true
+  },
+  "dns": {
+    "servers": [
+      {
+        "server": "8.8.8.8",
+        "type": "udp",
+        "tag": "local_local"
+      },
+      {
+        "server": "dns.cloudflare.com",
+        "domain_resolver": "hosts_dns",
+        "path": "/dns-query",
+        "type": "https",
+        "tag": "remote_dns",
+        "detour": "proxy"
+      },
+      {
+        "domain_resolver": "local_local",
+        "type": "local",
+        "tag": "direct_dns"
+      },
+      {
+        "predefined": {
+          "dns.google": ["8.8.8.8", "8.8.4.4", "2001:4860:4860::8888", "2001:4860:4860::8844"],
+          "dns.alidns.com": ["223.5.5.5", "223.6.6.6", "2400:3200::1", "2400:3200:baba::1"],
+          "one.one.one.one": ["1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"],
+          "1dot1dot1dot1.cloudflare-dns.com": ["1.1.1.1", "1.0.0.1", "2606:4700:4700::1111", "2606:4700:4700::1001"],
+          "cloudflare-dns.com": ["104.16.249.249", "104.16.248.249", "2606:4700::6810:f8f9", "2606:4700::6810:f9f9"],
+          "dns.cloudflare.com": ["104.16.132.229", "104.16.133.229", "2606:4700::6810:84e5", "2606:4700::6810:85e5"],
+          "dot.pub": ["1.12.12.12", "120.53.53.53"],
+          "doh.pub": ["1.12.12.12", "120.53.53.53"],
+          "dns.quad9.net": ["9.9.9.9", "149.112.112.112", "2620:fe::fe", "2620:fe::9"],
+          "dns.yandex.net": ["77.88.8.8", "77.88.8.1", "2a02:6b8::feed:0ff", "2a02:6b8:0:1::feed:0ff"],
+          "dns.sb": ["185.222.222.222", "2a09::"],
+          "dns.umbrella.com": ["208.67.220.220", "208.67.222.222", "2620:119:35::35", "2620:119:53::53"],
+          "dns.sse.cisco.com": ["208.67.220.220", "208.67.222.222", "2620:119:35::35", "2620:119:53::53"],
+          "engage.cloudflareclient.com": ["162.159.192.1"],
+          "DESKTOP-0P2RNEK.mshome.net": ["172.29.112.1"]
+        },
+        "type": "hosts",
+        "tag": "hosts_dns"
+      },
+      {
+        "inet4_range": "198.18.0.0/15",
+        "inet6_range": "fc00::/18",
+        "type": "fakeip",
+        "tag": "fake_dns"
+      }
+    ],
+    "rules": [
+      {
+        "server": "hosts_dns",
+        "ip_accept_any": true
+      },
+      {
+        "server": "direct_dns",
+        "domain": ["rfc.domain.example"]
+      },
+      {
+        "server": "remote_dns",
+        "clash_mode": "Global"
+      },
+      {
+        "server": "direct_dns",
+        "clash_mode": "Direct"
+      },
+      {
+        "action": "predefined",
+        "rcode": "NOERROR",
+        "query_type": [64, 65]
+      },
+      {
+        "server": "fake_dns",
+        "type": "logical",
+        "mode": "and",
+        "rewrite_ttl": 1,
+        "rules": [
+          {
+            "query_type": [1, 28]
+          },
+          {
+            "invert": true,
+            "domain": [
+              "amobile.music.tc.qq.com",
+              "api-jooxtt.sanook.com",
+              "api.joox.com",
+              "aqqmusic.tc.qq.com",
+              "dl.stream.qqmusic.qq.com",
+              "ff.dorado.sdo.com",
+              "heartbeat.belkin.com",
+              "isure.stream.qqmusic.qq.com",
+              "joox.com",
+              "lens.l.google.com",
+              "localhost.ptlogin2.qq.com",
+              "localhost.sec.qq.com",
+              "mesu.apple.com",
+              "mobileoc.music.tc.qq.com",
+              "music.taihe.com",
+              "musicapi.taihe.com",
+              "na.b.g-tun.com",
+              "proxy.golang.org",
+              "ps.res.netease.com",
+              "shark007.net",
+              "songsearch.kugou.com",
+              "static.adtidy.org",
+              "streamoc.music.tc.qq.com",
+              "swcdn.apple.com",
+              "swdist.apple.com",
+              "swdownload.apple.com",
+              "swquery.apple.com",
+              "swscan.apple.com",
+              "turn.cloudflare.com",
+              "trackercdn.kugou.com",
+              "xnotify.xboxlive.com"
+            ],
+            "domain_suffix": [
+              "126.net",
+              "3gppnetwork.org",
+              "battle.net",
+              "battlenet.com.cn",
+              "cdn.nintendo.net",
+              "cmbchina.com",
+              "cmbimg.com",
+              "ff14.sdo.com",
+              "ffxiv.com",
+              "finalfantasyxiv.com",
+              "gcloudcs.com",
+              "home.arpa",
+              "invalid",
+              "kuwo.cn",
+              "lan",
+              "linksys.com",
+              "linksyssmartwifi.com",
+              "local",
+              "localdomain",
+              "localhost",
+              "market.xiaomi.com",
+              "mcdn.bilivideo.cn",
+              "media.dssott.com",
+              "msftconnecttest.com",
+              "msftncsi.com",
+              "music.163.com",
+              "music.migu.cn",
+              "n0808.com",
+              "nflxvideo.net",
+              "oray.com",
+              "orayimg.com",
+              "router.asus.com",
+              "sandai.net",
+              "square-enix.com",
+              "srv.nintendo.net",
+              "steamcontent.com",
+              "uu.163.com",
+              "wargaming.net",
+              "wggames.cn",
+              "wotgame.cn",
+              "wowsgame.cn",
+              "xiami.com",
+              "y.qq.com"
+            ],
+            "domain_keyword": ["ntp", "stun", "time"],
+            "domain_regex": [
+              "^[^.]+$",
+              "^[^.]+\\.[^.]+\\.xboxlive\\.com$",
+              "^localhost\\.[^.]+\\.weixin\\.qq\\.com$",
+              "^mijia\\scloud$",
+              "^xbox\\.[^.]+\\.microsoft\\.com$",
+              "^xbox\\.[^.]+\\.[^.]+\\.microsoft\\.com$"
+            ]
+          }
+        ]
+      },
+      {
+        "server": "direct_dns",
+        "domain_suffix": [
+          "95vps.com",
+          "absx.pages.dev",
+          "absx.us.kg",
+          "bsbsb.top",
+          "bsbsb.top",
+          "hdslb.com",
+          "prts.plus",
+          "www.aifuture-x.com",
+          "xdaforums.com",
+          "xiaohuazhuo.com"
+        ],
+        "domain_regex": ["\\.cn$"],
+        "rule_set": [
+          "geosite-asus",
+          "geosite-bilibili",
+          "geosite-bilibili-game",
+          "geosite-bitwarden",
+          "geosite-bytedance",
+          "geosite-category-netdisk-cn",
+          "geosite-cnki",
+          "geosite-coolapk",
+          "geosite-deepseek",
+          "geosite-geolocation-cn",
+          "geosite-lanzou",
+          "geosite-moji",
+          "geosite-tencent",
+          "geosite-zhihu"
+        ]
+      },
+      {
+        "domain_suffix": ["mumu.nie.netease.com", "sentry.netease.com"],
+        "action": "predefined",
+        "rcode": "NXDOMAIN"
+      },
+      {
+        "server": "remote_dns",
+        "domain_suffix": ["xmr.kryptex.network"]
+      },
+      {
+        "server": "direct_dns",
+        "domain_suffix": ["c3pool.org", "nanopool.org", "supportxmr.com", "thereisnospoon.pm", "xmr-tw.org"]
+      },
+      {
+        "server": "direct_dns",
+        "domain_suffix": ["maa.plus", "prts.plus"]
+      },
+      {
+        "server": "remote_dns",
+        "domain_suffix": ["github.com", "googleapis.cn", "gstatic.com", "parsec.app", "tradingview.com"],
+        "rule_set": ["geosite-binance", "geosite-okx"]
+      },
+      {
+        "rule_set": ["geosite-category-ads-all"],
+        "action": "predefined",
+        "rcode": "NXDOMAIN"
+      },
+      {
+        "server": "direct_dns",
+        "rule_set": ["geosite-private"]
+      },
+      {
+        "server": "direct_dns",
+        "domain_suffix": ["alidns.com", "doh.pub", "dot.pub", "360.cn", "onedns.net"]
+      },
+      {
+        "server": "direct_dns",
+        "rule_set": ["geosite-cn"]
+      }
+    ],
+    "final": "remote_dns",
+    "independent_cache": true
+  },
+  "inbounds": [
+    {
+      "type": "mixed",
+      "tag": "socks",
+      "listen": "0.0.0.0",
+      "listen_port": 10450
+    }
+  ],
+  "outbounds": [
+    {
+      "server": "rfc.domain.example",
+      "server_port": 65533,
+      "up_mbps": 100,
+      "down_mbps": 100,
+      "password": "password",
+      "type": "hysteria2",
+      "tag": "proxy",
+      "tls": {
+        "enabled": true,
+        "server_name": "rfc.domain.example",
+        "insecure": false
+      }
+    },
+    {
+      "type": "direct",
+      "tag": "direct"
+    }
+  ],
+  "endpoints": [],
+  "route": {
+    "default_domain_resolver": {
+      "server": "direct_dns"
+    },
+    "rules": [
+      {
+        "action": "sniff"
+      },
+      {
+        "type": "logical",
+        "mode": "or",
+        "rules": [
+          {
+            "port": [53]
+          },
+          {
+            "protocol": ["dns"]
+          }
+        ],
+        "action": "hijack-dns"
+      },
+      {
+        "domain": ["DESKTOP-0P2RNEK.mshome.net"],
+        "action": "resolve"
+      },
+      {
+        "outbound": "direct",
+        "clash_mode": "Direct"
+      },
+      {
+        "outbound": "proxy",
+        "clash_mode": "Global"
+      },
+      {
+        "outbound": "direct",
+        "network": ["tcp", "udp"],
+        "port_range": ["0:65535"],
+        "domain_suffix": [
+          "95vps.com",
+          "absx.pages.dev",
+          "absx.us.kg",
+          "bsbsb.top",
+          "bsbsb.top",
+          "hdslb.com",
+          "prts.plus",
+          "www.aifuture-x.com",
+          "xdaforums.com",
+          "xiaohuazhuo.com"
+        ],
+        "domain_regex": ["\\.cn$"],
+        "rule_set": [
+          "geosite-asus",
+          "geosite-bilibili",
+          "geosite-bilibili-game",
+          "geosite-bitwarden",
+          "geosite-bytedance",
+          "geosite-category-netdisk-cn",
+          "geosite-cnki",
+          "geosite-coolapk",
+          "geosite-deepseek",
+          "geosite-geolocation-cn",
+          "geosite-lanzou",
+          "geosite-moji",
+          "geosite-tencent",
+          "geosite-zhihu"
+        ]
+      },
+      {
+        "outbound": "direct",
+        "network": ["tcp", "udp"],
+        "port_range": ["0:65535"],
+        "ip_cidr": ["124.152.95.232", "127.0.0.1", "180.160.95.180"]
+      },
+      {
+        "outbound": "direct",
+        "network": ["tcp", "udp"],
+        "port_range": ["0:65535"],
+        "process_name": ["gupax.exe", "Jantama_MahjongSoul.exe"]
+      },
+      {
+        "network": ["tcp", "udp"],
+        "port_range": ["0:65535"],
+        "domain_suffix": ["mumu.nie.netease.com", "sentry.netease.com"],
+        "action": "reject"
+      },
+      {
+        "outbound": "proxy",
+        "network": ["tcp", "udp"],
+        "port_range": ["0:65535"],
+        "process_name": ["studio64.exe"]
+      },
+      {
+        "outbound": "proxy",
+        "network": ["tcp", "udp"],
+        "domain_suffix": ["xmr.kryptex.network"]
+      },
+      {
+        "outbound": "proxy",
+        "network": ["tcp", "udp"],
+        "ip_cidr": ["157.90.32.66"]
+      },
+      {
+        "outbound": "direct",
+        "network": ["tcp", "udp"],
+        "domain_suffix": ["c3pool.org", "nanopool.org", "supportxmr.com", "thereisnospoon.pm", "xmr-tw.org"]
+      },
+      {
+        "outbound": "direct",
+        "network": ["tcp", "udp"],
+        "ip_cidr": ["103.176.58.34", "125.229.105.12"]
+      },
+      {
+        "outbound": "direct",
+        "network": ["tcp", "udp"],
+        "process_name": ["grass.exe"]
+      },
+      {
+        "outbound": "direct",
+        "network": ["tcp", "udp"],
+        "domain_suffix": ["maa.plus", "prts.plus"]
+      },
+      {
+        "outbound": "proxy",
+        "domain_suffix": ["github.com", "googleapis.cn", "gstatic.com", "parsec.app", "tradingview.com"],
+        "rule_set": ["geosite-binance", "geosite-okx"]
+      },
+      {
+        "network": ["udp"],
+        "port": [443],
+        "action": "reject"
+      },
+      {
+        "rule_set": ["geosite-category-ads-all"],
+        "action": "reject"
+      },
+      {
+        "outbound": "direct",
+        "ip_is_private": true
+      },
+      {
+        "outbound": "direct",
+        "rule_set": ["geosite-private"]
+      },
+      {
+        "outbound": "direct",
+        "ip_cidr": [
+          "223.5.5.5",
+          "223.6.6.6",
+          "2400:3200::1",
+          "2400:3200:baba::1",
+          "119.29.29.29",
+          "1.12.12.12",
+          "120.53.53.53",
+          "2402:4e00::",
+          "2402:4e00:1::",
+          "180.76.76.76",
+          "2400:da00::6666",
+          "114.114.114.114",
+          "114.114.115.115",
+          "114.114.114.119",
+          "114.114.115.119",
+          "114.114.114.110",
+          "114.114.115.110",
+          "180.184.1.1",
+          "180.184.2.2",
+          "101.226.4.6",
+          "218.30.118.6",
+          "123.125.81.6",
+          "140.207.198.6",
+          "1.2.4.8",
+          "210.2.4.8",
+          "52.80.66.66",
+          "117.50.22.22",
+          "2400:7fc0:849e:200::4",
+          "2404:c2c0:85d8:901::4",
+          "117.50.10.10",
+          "52.80.52.52",
+          "2400:7fc0:849e:200::8",
+          "2404:c2c0:85d8:901::8",
+          "117.50.60.30",
+          "52.80.60.30"
+        ]
+      },
+      {
+        "outbound": "direct",
+        "domain_suffix": ["alidns.com", "doh.pub", "dot.pub", "360.cn", "onedns.net"]
+      },
+      {
+        "outbound": "direct",
+        "rule_set": ["geoip-cn"]
+      },
+      {
+        "outbound": "direct",
+        "rule_set": ["geosite-cn"]
+      },
+      {
+        "outbound": "proxy",
+        "port_range": ["0:65535"]
+      }
+    ],
+    "rule_set": [
+      {
+        "tag": "geosite-asus",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-asus.srs"
+      },
+      {
+        "tag": "geosite-bilibili",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-bilibili.srs"
+      },
+      {
+        "tag": "geosite-bilibili-game",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-bilibili-game.srs"
+      },
+      {
+        "tag": "geosite-bitwarden",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-bitwarden.srs"
+      },
+      {
+        "tag": "geosite-bytedance",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-bytedance.srs"
+      },
+      {
+        "tag": "geosite-category-netdisk-cn",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-category-netdisk-cn.srs"
+      },
+      {
+        "tag": "geosite-cnki",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-cnki.srs"
+      },
+      {
+        "tag": "geosite-coolapk",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-coolapk.srs"
+      },
+      {
+        "tag": "geosite-deepseek",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-deepseek.srs"
+      },
+      {
+        "tag": "geosite-geolocation-cn",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-geolocation-cn.srs"
+      },
+      {
+        "tag": "geosite-lanzou",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-lanzou.srs"
+      },
+      {
+        "tag": "geosite-moji",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-moji.srs"
+      },
+      {
+        "tag": "geosite-tencent",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-tencent.srs"
+      },
+      {
+        "tag": "geosite-zhihu",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-zhihu.srs"
+      },
+      {
+        "tag": "geosite-binance",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-binance.srs"
+      },
+      {
+        "tag": "geosite-okx",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-okx.srs"
+      },
+      {
+        "tag": "geosite-category-ads-all",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-category-ads-all.srs"
+      },
+      {
+        "tag": "geosite-private",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-private.srs"
+      },
+      {
+        "tag": "geosite-cn",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geosite-cn.srs"
+      },
+      {
+        "tag": "geoip-cn",
+        "type": "local",
+        "format": "binary",
+        "path": "C:\\standalone_software\\v2rayN\\bin\\srss\\geoip-cn.srs"
+      }
+    ],
+    "final": "proxy"
+  },
+  "experimental": {
+    "cache_file": {
+      "enabled": true,
+      "path": "C:\\standalone_software\\v2rayN\\bin\\cache.db",
+      "store_fakeip": true
+    },
+    "clash_api": {
+      "external_controller": "127.0.0.1:10455"
+    }
+  }
+}
