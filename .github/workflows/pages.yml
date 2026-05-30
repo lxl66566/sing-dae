@@ -58,6 +58,8 @@ jobs:
       - name: Build frontend
         run: pnpm run build
         working-directory: frontend
+        env:
+          BASE_URL: /sing-dae/
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v5

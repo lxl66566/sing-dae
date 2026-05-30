@@ -7,6 +7,7 @@ export default defineConfig({
   server: {
     open: true,
   },
+  base: process.env.BASE_URL || "/",
   build: {
     target: "esnext",
   },
