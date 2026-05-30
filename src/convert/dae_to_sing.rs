@@ -4,7 +4,8 @@ use crate::{
     dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule},
     error::{AppError, Result},
     singbox::config::{
-        Dns, DnsRule, DnsServer, Log, Outbound, Route, RouteRule, SingBoxConfig, TlsConfig,
+        Dns, DnsRule, DnsServer, Log, Outbound, Route, RouteRule, RuleSet, SingBoxConfig,
+        TlsConfig,
     },
 };
 
@@ -374,7 +375,9 @@ fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
 // ---- Route ----
 
 fn build_route(dae: &DaeConfig) -> Option<Route> {
-    if dae.routing.rules.is_empty() && dae.routing.fallback.is_none() {
+    let rule_set = build_rule_set();
+
+    if dae.routing.rules.is_empty() && dae.routing.fallback.is_none() && rule_set.is_empty() {
         return None;
     }
 
@@ -382,7 +385,7 @@ fn build_route(dae: &DaeConfig) -> Option<Route> {
 
     Some(Route {
         rules,
-        rule_set: vec![],
+        rule_set,
         final_outbound: dae.routing.fallback.clone(),
         default_domain_resolver: None,
     })
@@ -454,6 +457,47 @@ fn resolve_target(target: &str) -> ResolvedTarget {
             action: None,
         },
     }
+}
+
+// ---- Rule set generation ----
+
+fn build_rule_set() -> Vec<RuleSet> {
+    let mut tags: Vec<&str> = vec![
+        "geosite-cn",
+        "geosite-geolocation-cn",
+        "geosite-category-ads",
+        "geosite-category-ads-all",
+        "geosite-google",
+        "geosite-telegram",
+        "geosite-openai",
+        "geosite-bilibili",
+        "geosite-bilibili-game",
+        "geosite-category-porn",
+        "geosite-category-cryptocurrency",
+        "geosite-stackexchange",
+        "geosite-private",
+        "geoip-cn",
+        "geoip-private",
+    ];
+    tags.sort();
+    tags.dedup();
+
+    tags.into_iter()
+        .map(|tag| {
+            let url = if tag.starts_with("geoip-") {
+                format!("https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/{tag}.srs")
+            } else {
+                format!("https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/{tag}.srs")
+            };
+            RuleSet {
+                tag: Some(tag.to_string()),
+                rule_set_type: Some("remote".to_string()),
+                format: Some("binary".to_string()),
+                path: None,
+                url: Some(url),
+            }
+        })
+        .collect()
 }
 
 // ---- Argument categorization ----

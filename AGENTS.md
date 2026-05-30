@@ -57,6 +57,7 @@ Vite + SolidJS + UnoCSS (tailwind preset) 的单页面应用。
 编译 rust 代码：
 
 ```sh
+cargo build --release --target wasm32-unknown-unknown
 wasm-bindgen target/wasm32-unknown-unknown/release/sing_dae.wasm --out-dir frontend/pkg --target web
 ```
 
