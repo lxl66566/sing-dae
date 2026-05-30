@@ -38,11 +38,7 @@ pub struct Dns {
     pub servers: Vec<DnsServer>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<DnsRule>,
-    #[serde(
-        rename = "final",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "final", default, skip_serializing_if = "Option::is_none")]
     pub final_dns: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub independent_cache: Option<bool>,
@@ -163,11 +159,7 @@ pub struct Route {
     pub rules: Vec<RouteRule>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rule_set: Vec<RuleSet>,
-    #[serde(
-        rename = "final",
-        default,
-        skip_serializing_if = "Option::is_none"
-    )]
+    #[serde(rename = "final", default, skip_serializing_if = "Option::is_none")]
     pub final_outbound: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_domain_resolver: Option<serde_json::Value>,

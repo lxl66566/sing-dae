@@ -4,7 +4,6 @@ pub mod error;
 pub mod singbox;
 
 pub use error::{AppError, Result};
-
 use wasm_bindgen::prelude::*;
 
 #[wasm_bindgen]

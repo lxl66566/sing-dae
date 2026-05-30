@@ -1,8 +1,12 @@
 use std::collections::HashMap;
 
-use crate::dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule};
-use crate::error::{AppError, Result};
-use crate::singbox::config::{Dns, DnsRule, DnsServer, Log, Outbound, Route, RouteRule, SingBoxConfig, TlsConfig};
+use crate::{
+    dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule},
+    error::{AppError, Result},
+    singbox::config::{
+        Dns, DnsRule, DnsServer, Log, Outbound, Route, RouteRule, SingBoxConfig, TlsConfig,
+    },
+};
 
 #[allow(clippy::missing_errors_doc)]
 pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
@@ -73,10 +77,12 @@ fn parse_node_link(tag: &str, link: &str) -> Result<Outbound> {
         .ok_or_else(|| AppError::Conversion(format!("invalid node link: {link}")))?;
 
     if rest.contains(" -> ") {
-        return Err(AppError::Conversion(format!("chain nodes not supported: {link}")));
+        return Err(AppError::Conversion(format!(
+            "chain nodes not supported: {link}"
+        )));
     }
 
-    let fragment = match rest.rfind('#') {
+    let _fragment = match rest.rfind('#') {
         Some(idx) => &rest[idx + 1..],
         None => "",
     };
@@ -288,10 +294,7 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
 
 fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
     let (dns_type, server) = if let Some((scheme, rest)) = url.split_once("://") {
-        let server = rest
-            .rsplit_once(':')
-            .map_or(rest, |(h, _)| h)
-            .to_string();
+        let server = rest.rsplit_once(':').map_or(rest, |(h, _)| h).to_string();
         (scheme.to_string(), server)
     } else {
         ("udp".to_string(), url.to_string())
@@ -644,18 +647,25 @@ mod tests {
     fn direct_outbound_always_present() {
         let dae = DaeConfig::default();
         let cfg = convert(&dae).unwrap();
-        assert!(cfg
-            .outbounds
-            .iter()
-            .any(|ob| ob.tag.as_deref() == Some("direct") && ob.outbound_type == "direct"));
+        assert!(
+            cfg.outbounds
+                .iter()
+                .any(|ob| ob.tag.as_deref() == Some("direct") && ob.outbound_type == "direct")
+        );
     }
 
     #[test]
     fn group_urltest_with_name_filter() {
         let dae = DaeConfig {
             nodes: vec![
-                Entry::Tagged { key: "jp-1".into(), value: "hy2://p@h:1".into() },
-                Entry::Tagged { key: "us-1".into(), value: "hy2://p@h:2".into() },
+                Entry::Tagged {
+                    key: "jp-1".into(),
+                    value: "hy2://p@h:1".into(),
+                },
+                Entry::Tagged {
+                    key: "us-1".into(),
+                    value: "hy2://p@h:2".into(),
+                },
             ],
             groups: vec![GroupDef {
                 name: "jp".into(),
@@ -669,7 +679,11 @@ mod tests {
             ..DaeConfig::default()
         };
         let cfg = convert(&dae).unwrap();
-        let jp_group = cfg.outbounds.iter().find(|ob| ob.tag.as_deref() == Some("jp")).unwrap();
+        let jp_group = cfg
+            .outbounds
+            .iter()
+            .find(|ob| ob.tag.as_deref() == Some("jp"))
+            .unwrap();
         assert_eq!(jp_group.outbound_type, "urltest");
         assert_eq!(jp_group.outbounds, vec!["jp-1"]);
     }
@@ -678,8 +692,14 @@ mod tests {
     fn group_selector_with_negated_filter() {
         let dae = DaeConfig {
             nodes: vec![
-                Entry::Tagged { key: "jp-1".into(), value: "hy2://p@h:1".into() },
-                Entry::Tagged { key: "us-1".into(), value: "hy2://p@h:2".into() },
+                Entry::Tagged {
+                    key: "jp-1".into(),
+                    value: "hy2://p@h:1".into(),
+                },
+                Entry::Tagged {
+                    key: "us-1".into(),
+                    value: "hy2://p@h:2".into(),
+                },
             ],
             groups: vec![GroupDef {
                 name: "no_jp".into(),
@@ -693,7 +713,11 @@ mod tests {
             ..DaeConfig::default()
         };
         let cfg = convert(&dae).unwrap();
-        let g = cfg.outbounds.iter().find(|ob| ob.tag.as_deref() == Some("no_jp")).unwrap();
+        let g = cfg
+            .outbounds
+            .iter()
+            .find(|ob| ob.tag.as_deref() == Some("no_jp"))
+            .unwrap();
         assert_eq!(g.outbound_type, "selector");
         assert_eq!(g.outbounds, vec!["us-1"]);
     }
@@ -778,8 +802,14 @@ mod tests {
         let dae = DaeConfig {
             dns: DnsSection {
                 upstream: vec![
-                    KeyValue { key: "alidns".into(), value: "udp://223.5.5.5:53".into() },
-                    KeyValue { key: "googledns".into(), value: "tcp+udp://dns.google.com:53".into() },
+                    KeyValue {
+                        key: "alidns".into(),
+                        value: "udp://223.5.5.5:53".into(),
+                    },
+                    KeyValue {
+                        key: "googledns".into(),
+                        value: "tcp+udp://dns.google.com:53".into(),
+                    },
                 ],
                 request_rules: vec![
                     RoutingRule {

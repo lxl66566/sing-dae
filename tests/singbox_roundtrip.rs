@@ -20,5 +20,8 @@ fn roundtrip_fixture_config() {
     let re_json = serde_json::to_string_pretty(&config).expect("serialize");
     let config2: SingBoxConfig = serde_json::from_str(&re_json).expect("re-deserialize");
     assert_eq!(config.outbounds.len(), config2.outbounds.len());
-    assert_eq!(config.route.unwrap().rules.len(), config2.route.unwrap().rules.len());
+    assert_eq!(
+        config.route.unwrap().rules.len(),
+        config2.route.unwrap().rules.len()
+    );
 }

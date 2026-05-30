@@ -1,7 +1,9 @@
 use std::fs;
 
-use sing_dae::convert::{dae_to_sing, sing_to_dae};
-use sing_dae::dae::parser;
+use sing_dae::{
+    convert::{dae_to_sing, sing_to_dae},
+    dae::parser,
+};
 
 #[test]
 fn dae_to_sing_from_fixture() {
@@ -40,8 +42,14 @@ fn sing_to_dae_from_fixture() {
     let dae_config = sing_to_dae::convert(&sing_config).expect("convert to dae");
 
     assert!(!dae_config.nodes.is_empty(), "should have nodes");
-    assert!(!dae_config.routing.rules.is_empty(), "should have routing rules");
-    assert!(dae_config.routing.fallback.is_some(), "should have fallback");
+    assert!(
+        !dae_config.routing.rules.is_empty(),
+        "should have routing rules"
+    );
+    assert!(
+        dae_config.routing.fallback.is_some(),
+        "should have fallback"
+    );
 }
 
 #[test]

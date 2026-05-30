@@ -1,9 +1,11 @@
-use crate::dae::ast::{
-    DaeConfig, DnsSection, Entry, FilterDef, GroupDef, KeyValue, PolicyDef, RoutingRule,
-    RoutingSection,
+use crate::{
+    dae::ast::{
+        DaeConfig, DnsSection, Entry, FilterDef, GroupDef, KeyValue, PolicyDef, RoutingRule,
+        RoutingSection,
+    },
+    error::{AppError, Result},
+    singbox::config::SingBoxConfig,
 };
-use crate::error::{AppError, Result};
-use crate::singbox::config::SingBoxConfig;
 
 #[allow(clippy::missing_errors_doc)]
 pub fn convert(sing: &SingBoxConfig) -> Result<DaeConfig> {
@@ -64,12 +66,13 @@ fn is_proxy_type(t: &str) -> bool {
 
 fn build_node_link(ob: &crate::singbox::config::Outbound) -> Result<String> {
     let tag = ob.tag.as_deref().unwrap_or(&ob.outbound_type);
-    let server = ob.server.as_deref().ok_or_else(|| {
-        AppError::Conversion(format!("outbound '{tag}' missing server"))
-    })?;
-    let port = ob.server_port.ok_or_else(|| {
-        AppError::Conversion(format!("outbound '{tag}' missing server_port"))
-    })?;
+    let server = ob
+        .server
+        .as_deref()
+        .ok_or_else(|| AppError::Conversion(format!("outbound '{tag}' missing server")))?;
+    let port = ob
+        .server_port
+        .ok_or_else(|| AppError::Conversion(format!("outbound '{tag}' missing server_port")))?;
     let fragment = simple_percent_encode(tag);
     let sni = ob
         .tls
@@ -80,7 +83,9 @@ fn build_node_link(ob: &crate::singbox::config::Outbound) -> Result<String> {
     match ob.outbound_type.as_str() {
         "hysteria2" => {
             let password = ob.password.as_deref().unwrap_or("");
-            Ok(format!("hy2://{password}@{server}:{port}/?sni={sni}#{fragment}"))
+            Ok(format!(
+                "hy2://{password}@{server}:{port}/?sni={sni}#{fragment}"
+            ))
         }
         "trojan" => {
             let password = ob.password.as_deref().unwrap_or("");
@@ -356,8 +361,7 @@ fn simple_percent_encode(s: &str) -> String {
     result
 }
 
-const BASE64_TABLE: &[u8; 64] =
-    b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+const BASE64_TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
 
 fn base64_encode(data: &[u8]) -> String {
     let mut result = String::new();
@@ -543,10 +547,7 @@ mod tests {
         };
         let dae = convert(&sing).unwrap();
         assert_eq!(dae.groups[0].policy, PolicyDef::MinMovingAvg);
-        assert_eq!(
-            dae.groups[0].filters[0].expression,
-            "name(a, b)"
-        );
+        assert_eq!(dae.groups[0].filters[0].expression, "name(a, b)");
     }
 
     #[test]
@@ -644,7 +645,10 @@ mod tests {
         };
         let dae = convert(&sing).unwrap();
         assert_eq!(dae.routing.rules.len(), 1);
-        assert_eq!(dae.routing.rules[0].condition, "domain(example.com, test.org)");
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "domain(example.com, test.org)"
+        );
         assert_eq!(dae.routing.rules[0].target, "direct");
     }
 
@@ -662,7 +666,10 @@ mod tests {
             ..SingBoxConfig::default()
         };
         let dae = convert(&sing).unwrap();
-        assert_eq!(dae.routing.rules[0].condition, "domain(geosite:cn, geosite:bilibili)");
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "domain(geosite:cn, geosite:bilibili)"
+        );
     }
 
     #[test]
@@ -697,7 +704,10 @@ mod tests {
             ..SingBoxConfig::default()
         };
         let dae = convert(&sing).unwrap();
-        assert_eq!(dae.routing.rules[0].condition, "dip(10.0.0.0/8, 172.16.0.0/12)");
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "dip(10.0.0.0/8, 172.16.0.0/12)"
+        );
     }
 
     #[test]

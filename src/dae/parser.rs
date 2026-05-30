@@ -172,7 +172,10 @@ fn parse_group_section(pair: pest::iterators::Pair<Rule>) -> Vec<ast::GroupDef> 
         .filter(|p| p.as_rule() == Rule::group_def)
         .map(|p| {
             let mut inner = p.into_inner();
-            let name = inner.next().map(|n| n.as_str().to_owned()).unwrap_or_default();
+            let name = inner
+                .next()
+                .map(|n| n.as_str().to_owned())
+                .unwrap_or_default();
 
             let mut filters = Vec::new();
             let mut policy = ast::PolicyDef::default();
@@ -215,14 +218,12 @@ fn parse_filter_line(pair: pest::iterators::Pair<Rule>) -> ast::FilterDef {
         .next()
         .map(|p| p.as_str().trim().to_owned())
         .unwrap_or_default();
-    let latency_offset = inner
-        .next()
-        .map(|p| {
-            p.into_inner()
-                .next()
-                .map(|pp| pp.as_str().trim().to_owned())
-                .unwrap_or_default()
-        });
+    let latency_offset = inner.next().map(|p| {
+        p.into_inner()
+            .next()
+            .map(|pp| pp.as_str().trim().to_owned())
+            .unwrap_or_default()
+    });
     ast::FilterDef {
         expression,
         latency_offset,
@@ -241,7 +242,9 @@ fn parse_policy_line(pair: pest::iterators::Pair<Rule>) -> ast::PolicyDef {
         .map(|p| p.as_str().to_owned())
         .unwrap_or_default();
 
-    let index = pv_inner.next().and_then(|p| p.as_str().parse::<usize>().ok());
+    let index = pv_inner
+        .next()
+        .and_then(|p| p.as_str().parse::<usize>().ok());
 
     match name.as_str() {
         "random" => ast::PolicyDef::Random,
@@ -267,8 +270,7 @@ fn parse_routing_section(pair: pest::iterators::Pair<Rule>) -> ast::RoutingSecti
             }
             Rule::fallback_line => {
                 let mut fi = inner.into_inner();
-                section.fallback =
-                    fi.next().map(|t| t.as_str().trim().to_owned());
+                section.fallback = fi.next().map(|t| t.as_str().trim().to_owned());
             }
             _ => {}
         }
@@ -279,7 +281,10 @@ fn parse_routing_section(pair: pest::iterators::Pair<Rule>) -> ast::RoutingSecti
 
 fn parse_single_kv(pair: pest::iterators::Pair<Rule>) -> ast::KeyValue {
     let mut inner = pair.into_inner();
-    let key = inner.next().map(|k| k.as_str().trim().to_owned()).unwrap_or_default();
+    let key = inner
+        .next()
+        .map(|k| k.as_str().trim().to_owned())
+        .unwrap_or_default();
     let value = inner
         .next()
         .map(|v| clean_value(v.as_str()))

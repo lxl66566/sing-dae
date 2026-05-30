@@ -57,13 +57,21 @@ fn roundtrip_fixture() {
     assert_eq!(config.groups.len(), reparsed.groups.len());
     assert_eq!(config.routing.rules.len(), reparsed.routing.rules.len());
     assert_eq!(config.dns.upstream.len(), reparsed.dns.upstream.len());
-    assert_eq!(config.dns.request_rules.len(), reparsed.dns.request_rules.len());
+    assert_eq!(
+        config.dns.request_rules.len(),
+        reparsed.dns.request_rules.len()
+    );
 
     for (a, b) in config.groups.iter().zip(reparsed.groups.iter()) {
         assert_eq!(a.name, b.name);
     }
 
-    for (a, b) in config.routing.rules.iter().zip(reparsed.routing.rules.iter()) {
+    for (a, b) in config
+        .routing
+        .rules
+        .iter()
+        .zip(reparsed.routing.rules.iter())
+    {
         assert_eq!(a.condition.trim(), b.condition.trim());
         assert_eq!(a.target, b.target);
     }
