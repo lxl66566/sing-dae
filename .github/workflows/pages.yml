@@ -1,0 +1,73 @@
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: "sccache"
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - uses: mozilla-actions/sccache-action@v0.0.9
+
+      - name: Build wasm
+        run: cargo build --release --target wasm32-unknown-unknown
+
+      - name: Install wasm-bindgen-cli
+        uses: cargo-bins/cargo-binstall@main
+        with:
+          tool: wasm-bindgen-cli
+
+      - name: Generate wasm bindings
+        run: wasm-bindgen target/wasm32-unknown-unknown/release/sing_dae.wasm --out-dir frontend/pkg --target web
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+        working-directory: frontend
+
+      - name: Build frontend
+        run: pnpm run build
+        working-directory: frontend
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: frontend/dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deploy
+        uses: actions/deploy-pages@v4

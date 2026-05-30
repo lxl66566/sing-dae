@@ -1,0 +1,466 @@
+import { createSignal, onMount, type JSX } from "solid-js";
+import { FaSolidArrowRight, FaSolidArrowLeft } from "solid-icons/fa";
+import { Editor, type PrismEditor } from "solid-prism-editor";
+import { basicSetup } from "solid-prism-editor/setups";
+import "solid-prism-editor/prism/languages/json";
+import "solid-prism-editor/layout.css";
+import "solid-prism-editor/themes/github-dark.css";
+import "solid-prism-editor/scrollbar.css";
+import "solid-prism-editor/search.css";
+import init, { dae_to_singbox, singbox_to_dae } from "../pkg/sing_dae.js";
+
+const EXAMPLE_DAE = `global {
+    log_level: info
+    wan_interface: auto
+    tproxy_port: 12345
+    dial_mode: domain
+    allow_insecure: false
+    tcp_check_url: 'http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111'
+    udp_check_dns: 'dns.google.com:53,8.8.8.8,2001:4860:4860::8888'
+    check_interval: 20s
+    check_tolerance: 50ms
+}
+node {
+    my-node: 'hy2://change-me@server.example.com:65533/?sni=server.example.com#example'
+}
+group {
+    proxy { policy: min_moving_avg }
+    direct { policy: min_moving_avg }
+}
+routing {
+    dip(geoip:private) -> direct
+    domain(geosite:cn) -> direct
+    domain(geosite:google) -> proxy
+    fallback: proxy
+}`;
+
+const EXAMPLE_SING = JSON.stringify(
+  {
+    log: { level: "info", timestamp: true },
+    inbounds: [
+      {
+        type: "mixed",
+        tag: "socks",
+        listen: "127.0.0.1",
+        listen_port: 1080,
+      },
+    ],
+    outbounds: [
+      { type: "direct", tag: "direct" },
+      {
+        type: "shadowsocks",
+        tag: "proxy",
+        server: "server.example.com",
+        server_port: 443,
+        method: "aes-128-gcm",
+        password: "change-me",
+      },
+    ],
+    route: {
+      rules: [
+        { outbound: "direct", ip_is_private: true },
+        { outbound: "direct", rule_set: ["geosite-cn"] },
+        { outbound: "proxy", rule_set: ["geosite-google"] },
+      ],
+      final: "proxy",
+    },
+  },
+  null,
+  2,
+);
+
+function setEditorValue(editor: PrismEditor | undefined, value: string) {
+  if (!editor) return;
+  editor.textarea.value = value;
+  editor.update();
+}
+
+type StatusType = "info" | "success" | "error";
+
+function App(): JSX.Element {
+  const [status, setStatus] = createSignal("正在加载 WASM...");
+  const [statusType, setStatusType] = createSignal<StatusType>("info");
+  const [wasmReady, setWasmReady] = createSignal(false);
+  const [copiedSide, setCopiedSide] = createSignal<"left" | "right" | null>(null);
+
+  let leftEditor: PrismEditor | undefined;
+  let rightEditor: PrismEditor | undefined;
+  let copiedTimer: ReturnType<typeof setTimeout> | undefined;
+
+  onMount(async () => {
+    try {
+      await init();
+      setWasmReady(true);
+      setStatus("就绪");
+      setStatusType("info");
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setStatus("WASM 加载失败: " + msg);
+      setStatusType("error");
+    }
+  });
+
+  function convertLeftToRight() {
+    if (!leftEditor) return;
+    const text = leftEditor.value.trim();
+    if (!text) {
+      setStatus("左侧无内容");
+      setStatusType("error");
+      return;
+    }
+    try {
+      const result = dae_to_singbox(text);
+      setEditorValue(rightEditor, result);
+      setStatus("dae → sing-box 成功");
+      setStatusType("success");
+    } catch (e: unknown) {
+      setStatus("转换失败: " + (e instanceof Error ? e.message : String(e)));
+      setStatusType("error");
+    }
+  }
+
+  function convertRightToLeft() {
+    if (!rightEditor) return;
+    const text = rightEditor.value.trim();
+    if (!text) {
+      setStatus("右侧无内容");
+      setStatusType("error");
+      return;
+    }
+    try {
+      const result = singbox_to_dae(text);
+      setEditorValue(leftEditor, result);
+      setStatus("sing-box → dae 成功");
+      setStatusType("success");
+    } catch (e: unknown) {
+      setStatus("转换失败: " + (e instanceof Error ? e.message : String(e)));
+      setStatusType("error");
+    }
+  }
+
+  async function copyText(side: "left" | "right") {
+    const editor = side === "left" ? leftEditor : rightEditor;
+    if (!editor || !editor.value) return;
+    try {
+      await navigator.clipboard.writeText(editor.value);
+      setCopiedSide(side);
+      clearTimeout(copiedTimer);
+      copiedTimer = setTimeout(() => setCopiedSide(null), 1500);
+      setStatus("已复制");
+      setStatusType("success");
+    } catch {
+      setStatus("复制失败");
+      setStatusType("error");
+    }
+  }
+
+  function loadExample() {
+    setEditorValue(leftEditor, EXAMPLE_DAE);
+    setEditorValue(rightEditor, EXAMPLE_SING);
+    setStatus("已加载示例");
+    setStatusType("info");
+  }
+
+  return (
+    <div class="app-root">
+      <header class="app-header">
+        <h1 class="app-title">sing-dae</h1>
+        <span class="app-subtitle">配置转换器</span>
+        <button class="btn-example" onClick={loadExample} disabled={!wasmReady()}>
+          示例
+        </button>
+      </header>
+
+      <main class="editor-grid">
+        <section class="panel">
+          <div class="panel-header">
+            <span class="tag tag-dae">dae</span>
+            <button class="btn-copy" onClick={() => copyText("left")}>
+              {copiedSide() === "left" ? "✓ 已复制" : "复制"}
+            </button>
+          </div>
+          <div class="editor-wrap">
+            <Editor
+              language="text"
+              value={EXAMPLE_DAE}
+              lineNumbers
+              wordWrap
+              tabSize={4}
+              extensions={basicSetup}
+              onMount={(e) => {
+                leftEditor = e;
+              }}
+            />
+          </div>
+        </section>
+
+        <div class="convert-col">
+          <button class="btn-convert" onClick={convertLeftToRight} disabled={!wasmReady()} title="dae → sing-box">
+            <FaSolidArrowRight size={22} />
+          </button>
+          <button class="btn-convert" onClick={convertRightToLeft} disabled={!wasmReady()} title="sing-box → dae">
+            <FaSolidArrowLeft size={22} />
+          </button>
+        </div>
+
+        <section class="panel">
+          <div class="panel-header">
+            <span class="tag tag-sing">sing-box</span>
+            <button class="btn-copy" onClick={() => copyText("right")}>
+              {copiedSide() === "right" ? "✓ 已复制" : "复制"}
+            </button>
+          </div>
+          <div class="editor-wrap">
+            <Editor
+              language="json"
+              value=""
+              lineNumbers
+              wordWrap
+              extensions={basicSetup}
+              onMount={(e) => {
+                rightEditor = e;
+              }}
+            />
+          </div>
+        </section>
+      </main>
+
+      <footer class="status-bar">
+        <span class={`status-text status-${statusType()}`}>{status()}</span>
+      </footer>
+
+      <style>{`
+        *, *::before, *::after {
+          box-sizing: border-box;
+        }
+
+        html, body, #root {
+          height: 100%;
+          margin: 0;
+        }
+
+        body {
+          background: #09090b;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans SC", sans-serif;
+          font-size: 14px;
+          color: #e4e4e7;
+        }
+
+        /* Scrollbar */
+        * {
+          scrollbar-width: thin;
+          scrollbar-color: #27272a transparent;
+        }
+        ::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+          background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+          background: #27272a;
+          border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: #3f3f46;
+        }
+
+        /* Layout */
+        .app-root {
+          display: flex;
+          flex-direction: column;
+          height: 100%;
+        }
+
+        .app-header {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 10px 24px;
+          background: #111114;
+          border-bottom: 1px solid #27272a;
+        }
+
+        .app-title {
+          font-size: 15px;
+          font-weight: 700;
+          color: #fafafa;
+          letter-spacing: -0.02em;
+          margin: 0;
+        }
+
+        .app-subtitle {
+          font-size: 13px;
+          color: gray;
+        }
+
+        .btn-example {
+          margin-left: auto;
+          padding: 4px 14px;
+          border-radius: 6px;
+          border: 1px solid #27272a;
+          background: #18181b;
+          color: #a1a1aa;
+          font-size: 13px;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .btn-example:hover:not(:disabled) {
+          background: #27272a;
+          color: #e4e4e7;
+        }
+        .btn-example:disabled {
+          opacity: 0.3;
+          cursor: not-allowed;
+        }
+
+        .editor-grid {
+          flex: 1;
+          display: grid;
+          grid-template-columns: 1fr auto 1fr;
+          min-height: 0;
+          overflow: hidden;
+        }
+
+        .panel {
+          display: flex;
+          flex-direction: column;
+          min-height: 0;
+          overflow: hidden;
+          background: #0c0c0f;
+        }
+
+        .panel-header {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          padding: 8px 16px;
+          background: #141418;
+          border-bottom: 1px solid #27272a;
+        }
+
+        .tag {
+          display: inline-block;
+          padding: 2px 10px;
+          border-radius: 4px;
+          font-size: 11px;
+          font-weight: 700;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+        }
+        .tag-dae {
+          background: #064e3b;
+          color: #6ee7b7;
+        }
+        .tag-sing {
+          background: #1e3a5f;
+          color: #7dd3fc;
+        }
+
+        .btn-copy {
+          margin-left: auto;
+          padding: 3px 10px;
+          border-radius: 4px;
+          border: 1px solid #27272a;
+          background: transparent;
+          color: #71717a;
+          font-size: 12px;
+          cursor: pointer;
+          transition: all 0.15s;
+        }
+        .btn-copy:hover {
+          background: #18181b;
+          color: #d4d4d8;
+        }
+
+        .editor-wrap {
+          flex: 1;
+          min-height: 0;
+          overflow: hidden;
+        }
+
+        /* Editor overrides */
+        .editor-wrap .prism-code-editor {
+          height: 100%;
+          font-size: 14px !important;
+          line-height: 1.65 !important;
+          --padding-inline: 1.2em;
+          --number-spacing: 1em;
+        }
+
+        .editor-wrap .prism-code-editor,
+        .editor-wrap .prism-code-editor textarea {
+          font-family: "JetBrains Mono", "Fira Code", "Cascadia Code", Consolas, monospace !important;
+        }
+
+        .convert-col {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          gap: 8px;
+          padding: 0 10px;
+          background: #09090b;
+          border-left: 1px solid #1e1e22;
+          border-right: 1px solid #1e1e22;
+        }
+
+        .btn-convert {
+          width: 48px;
+          height: 48px;
+          border-radius: 12px;
+          border: none;
+          background: #4f46e5;
+          color: white;
+          font-size: 20px;
+          font-weight: 600;
+          cursor: pointer;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          transition: all 0.2s;
+          box-shadow: 0 0 0 1px rgba(79, 70, 229, 0.4), 0 2px 8px rgba(79, 70, 229, 0.15);
+        }
+        .btn-convert:hover:not(:disabled) {
+          background: #6366f1;
+          transform: scale(1.08);
+          box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.5), 0 4px 16px rgba(99, 102, 241, 0.25);
+        }
+        .btn-convert:active:not(:disabled) {
+          background: #4338ca;
+          transform: scale(1.0);
+        }
+        .btn-convert:disabled {
+          opacity: 0.25;
+          cursor: not-allowed;
+          box-shadow: none;
+        }
+
+        .status-bar {
+          padding: 6px 24px;
+          background: #111114;
+          border-top: 1px solid #27272a;
+          min-height: 28px;
+          display: flex;
+          align-items: center;
+        }
+
+        .status-text {
+          font-size: 12px;
+        }
+        .status-info {
+          color: #52525b;
+        }
+        .status-success {
+          color: #4ade80;
+        }
+        .status-error {
+          color: #f87171;
+        }
+      `}</style>
+    </div>
+  );
+}
+
+export default App;
