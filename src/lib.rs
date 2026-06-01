@@ -15,8 +15,9 @@ pub fn dae_to_singbox(dae_text: &str) -> std::result::Result<String, JsError> {
 
 #[wasm_bindgen]
 pub fn singbox_to_dae(singbox_json: &str) -> std::result::Result<String, JsError> {
+    let json = singbox::jsonc::strip_jsonc(singbox_json);
     let sing_config: singbox::config::SingBoxConfig =
-        serde_json::from_str(singbox_json).map_err(|e| JsError::from(AppError::from(e)))?;
+        serde_json::from_str(&json).map_err(|e| JsError::from(AppError::from(e)))?;
     let dae_config = convert::sing_to_dae::convert(&sing_config)?;
     Ok(dae::serializer::serialize(&dae_config))
 }
