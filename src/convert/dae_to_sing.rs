@@ -4,7 +4,7 @@ use crate::{
     dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule},
     error::{AppError, Result},
     singbox::config::{
-        Dns, DnsRule, DnsServer, Log, Outbound, Route, RouteRule, RuleSet, SingBoxConfig,
+        Dns, DnsRule, DnsServer, Inbound, Log, Outbound, Route, RouteRule, RuleSet, SingBoxConfig,
         TlsConfig,
     },
 };
@@ -32,14 +32,17 @@ pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
     let dns = build_dns(dae);
     let route = build_route(dae);
 
+    let inbounds = build_default_inbounds();
+    let experimental = build_default_experimental();
+
     Ok(SingBoxConfig {
         log,
         dns,
-        inbounds: vec![],
+        inbounds,
         outbounds,
         endpoints: vec![],
         route,
-        experimental: None,
+        experimental: Some(experimental),
     })
 }
 
@@ -53,6 +56,24 @@ fn build_log(dae: &DaeConfig) -> Option<Log> {
             level: Some(kv.value.clone()),
             timestamp: Some(true),
         })
+}
+
+fn build_default_inbounds() -> Vec<Inbound> {
+    vec![Inbound {
+        inbound_type: "mixed".to_string(),
+        tag: Some("mixed".to_string()),
+        listen: Some("127.0.0.1".to_string()),
+        listen_port: Some(1080),
+    }]
+}
+
+fn build_default_experimental() -> serde_json::Value {
+    serde_json::json!({
+        "cache_file": {
+            "enabled": true,
+            "store_fakeip": true
+        }
+    })
 }
 
 // ---- Nodes -> Outbounds ----

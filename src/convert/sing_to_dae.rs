@@ -28,16 +28,41 @@ pub fn convert(sing: &SingBoxConfig) -> Result<DaeConfig> {
 // ---- Log -> Global ----
 
 fn build_global(sing: &SingBoxConfig) -> Vec<KeyValue> {
-    sing.log
-        .as_ref()
-        .and_then(|log| log.level.as_ref())
-        .map(|level| {
-            vec![KeyValue {
-                key: "log_level".into(),
-                value: level.clone(),
-            }]
-        })
-        .unwrap_or_default()
+    let mut kvs = Vec::new();
+
+    if let Some(level) = sing.log.as_ref().and_then(|log| log.level.as_ref()) {
+        kvs.push(KeyValue {
+            key: "log_level".into(),
+            value: level.clone(),
+        });
+    }
+
+    let defaults = [
+        ("tproxy_port", "12345"),
+        ("wan_interface", "auto"),
+        ("dial_mode", "domain"),
+        ("allow_insecure", "false"),
+        (
+            "tcp_check_url",
+            "'http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111'",
+        ),
+        (
+            "udp_check_dns",
+            "'dns.google.com:53,8.8.8.8,2001:4860:4860::8888'",
+        ),
+        ("check_interval", "30s"),
+    ];
+
+    for (key, value) in defaults {
+        if !kvs.iter().any(|kv| kv.key == key) {
+            kvs.push(KeyValue {
+                key: key.to_string(),
+                value: value.to_string(),
+            });
+        }
+    }
+
+    kvs
 }
 
 // ---- Proxy Outbounds -> Nodes ----
@@ -436,9 +461,10 @@ mod tests {
             ..SingBoxConfig::default()
         };
         let dae = convert(&sing).unwrap();
-        assert_eq!(dae.global.len(), 1);
+        assert!(dae.global.len() > 1);
         assert_eq!(dae.global[0].key, "log_level");
         assert_eq!(dae.global[0].value, "debug");
+        assert!(dae.global.iter().any(|kv| kv.key == "tproxy_port"));
     }
 
     #[test]
