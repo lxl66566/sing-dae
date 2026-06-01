@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 
 use crate::{
     dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule},
@@ -30,7 +30,8 @@ pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
     outbounds.extend(group_outbounds);
 
     let dns = build_dns(dae);
-    let route = build_route(dae);
+    let rule_set_tags = collect_rule_set_tags(dae);
+    let route = build_route(dae, &rule_set_tags);
 
     let inbounds = build_default_inbounds();
     let experimental = build_default_experimental();
@@ -395,8 +396,8 @@ fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
 
 // ---- Route ----
 
-fn build_route(dae: &DaeConfig) -> Option<Route> {
-    let rule_set = build_rule_set();
+fn build_route(dae: &DaeConfig, rule_set_tags: &HashSet<String>) -> Option<Route> {
+    let rule_set = build_rule_set(rule_set_tags);
 
     if dae.routing.rules.is_empty() && dae.routing.fallback.is_none() && rule_set.is_empty() {
         return None;
@@ -482,36 +483,59 @@ fn resolve_target(target: &str) -> ResolvedTarget {
 
 // ---- Rule set generation ----
 
-fn build_rule_set() -> Vec<RuleSet> {
-    let mut tags: Vec<&str> = vec![
-        "geosite-cn",
-        "geosite-geolocation-cn",
-        "geosite-category-ads",
-        "geosite-category-ads-all",
-        "geosite-google",
-        "geosite-telegram",
-        "geosite-openai",
-        "geosite-bilibili",
-        "geosite-bilibili-game",
-        "geosite-category-porn",
-        "geosite-category-cryptocurrency",
-        "geosite-stackexchange",
-        "geosite-private",
-        "geoip-cn",
-        "geoip-private",
-    ];
-    tags.sort();
-    tags.dedup();
+fn collect_rule_set_tags(dae: &DaeConfig) -> HashSet<String> {
+    let mut tags = HashSet::new();
 
-    tags.into_iter()
+    for rule in &dae.routing.rules {
+        collect_tags_from_condition(&rule.condition, &mut tags);
+    }
+    for rule in &dae.dns.request_rules {
+        collect_tags_from_condition(&rule.condition, &mut tags);
+    }
+    for rule in &dae.dns.response_rules {
+        collect_tags_from_condition(&rule.condition, &mut tags);
+    }
+
+    tags
+}
+
+fn collect_tags_from_condition(condition: &str, tags: &mut HashSet<String>) {
+    let text = condition.trim();
+
+    for func_name in &["domain", "dip", "qname", "ip"] {
+        if let Some(args_str) = extract_paren_args(text, func_name) {
+            let args = parse_comma_args(args_str);
+            for arg in &args {
+                if let Some(name) = arg.strip_prefix("geosite:") {
+                    tags.insert(format!("geosite-{name}"));
+                } else if let Some(name) = arg.strip_prefix("geoip:") {
+                    if name != "private" {
+                        tags.insert(format!("geoip-{name}"));
+                    }
+                }
+            }
+        }
+    }
+}
+
+fn build_rule_set(tags: &HashSet<String>) -> Vec<RuleSet> {
+    let mut sorted: Vec<&String> = tags.iter().collect();
+    sorted.sort();
+
+    sorted
+        .into_iter()
         .map(|tag| {
             let url = if tag.starts_with("geoip-") {
-                format!("https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/{tag}.srs")
+                format!(
+                    "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/{tag}.srs"
+                )
             } else {
-                format!("https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/{tag}.srs")
+                format!(
+                    "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/{tag}.srs"
+                )
             };
             RuleSet {
-                tag: Some(tag.to_string()),
+                tag: Some(tag.clone()),
                 rule_set_type: Some("remote".to_string()),
                 format: Some("binary".to_string()),
                 path: None,
