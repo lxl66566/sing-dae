@@ -1,5 +1,5 @@
 import { createSignal, onMount, type JSX } from "solid-js";
-import { FaSolidArrowRight, FaSolidArrowLeft } from "solid-icons/fa";
+import { FaSolidArrowRight, FaSolidArrowLeft, FaSolidArrowDown, FaSolidArrowUp } from "solid-icons/fa";
 import { Editor, type PrismEditor } from "solid-prism-editor";
 import { basicSetup } from "solid-prism-editor/setups";
 import "solid-prism-editor/prism/languages/json";
@@ -78,7 +78,7 @@ function setEditorValue(editor: PrismEditor | undefined, value: string) {
 type StatusType = "info" | "success" | "error";
 
 function App(): JSX.Element {
-  const [status, setStatus] = createSignal("正在加载 WASM...");
+  const [status, setStatus] = createSignal("Loading WASM...");
   const [statusType, setStatusType] = createSignal<StatusType>("info");
   const [wasmReady, setWasmReady] = createSignal(false);
   const [copiedSide, setCopiedSide] = createSignal<"left" | "right" | null>(null);
@@ -91,11 +91,11 @@ function App(): JSX.Element {
     try {
       await init();
       setWasmReady(true);
-      setStatus("就绪");
+      setStatus("Ready");
       setStatusType("info");
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
-      setStatus("WASM 加载失败: " + msg);
+      setStatus("WASM load failed: " + msg);
       setStatusType("error");
     }
   });
@@ -104,17 +104,17 @@ function App(): JSX.Element {
     if (!leftEditor) return;
     const text = leftEditor.value.trim();
     if (!text) {
-      setStatus("左侧无内容");
+      setStatus("No dae content");
       setStatusType("error");
       return;
     }
     try {
       const result = dae_to_singbox(text);
       setEditorValue(rightEditor, result);
-      setStatus("dae → sing-box 成功");
+      setStatus("dae -> sing-box OK");
       setStatusType("success");
     } catch (e: unknown) {
-      setStatus("转换失败: " + (e instanceof Error ? e.message : String(e)));
+      setStatus("Error: " + (e instanceof Error ? e.message : String(e)));
       setStatusType("error");
     }
   }
@@ -123,17 +123,17 @@ function App(): JSX.Element {
     if (!rightEditor) return;
     const text = rightEditor.value.trim();
     if (!text) {
-      setStatus("右侧无内容");
+      setStatus("No sing-box content");
       setStatusType("error");
       return;
     }
     try {
       const result = singbox_to_dae(text);
       setEditorValue(leftEditor, result);
-      setStatus("sing-box → dae 成功");
+      setStatus("sing-box -> dae OK");
       setStatusType("success");
     } catch (e: unknown) {
-      setStatus("转换失败: " + (e instanceof Error ? e.message : String(e)));
+      setStatus("Error: " + (e instanceof Error ? e.message : String(e)));
       setStatusType("error");
     }
   }
@@ -146,10 +146,10 @@ function App(): JSX.Element {
       setCopiedSide(side);
       clearTimeout(copiedTimer);
       copiedTimer = setTimeout(() => setCopiedSide(null), 1500);
-      setStatus("已复制");
+      setStatus("Copied");
       setStatusType("success");
     } catch {
-      setStatus("复制失败");
+      setStatus("Copy failed");
       setStatusType("error");
     }
   }
@@ -157,7 +157,7 @@ function App(): JSX.Element {
   function loadExample() {
     setEditorValue(leftEditor, EXAMPLE_DAE);
     setEditorValue(rightEditor, EXAMPLE_SING);
-    setStatus("已加载示例");
+    setStatus("Example loaded");
     setStatusType("info");
   }
 
@@ -165,9 +165,9 @@ function App(): JSX.Element {
     <div class="app-root">
       <header class="app-header">
         <h1 class="app-title">sing-dae</h1>
-        <span class="app-subtitle">配置转换器</span>
+        <span class="app-subtitle">Config Converter</span>
         <button class="btn-example" onClick={loadExample} disabled={!wasmReady()}>
-          示例
+          Example
         </button>
       </header>
 
@@ -176,7 +176,7 @@ function App(): JSX.Element {
           <div class="panel-header">
             <span class="tag tag-dae">dae</span>
             <button class="btn-copy" onClick={() => copyText("left")}>
-              {copiedSide() === "left" ? "✓ 已复制" : "复制"}
+              {copiedSide() === "left" ? "Copied" : "Copy"}
             </button>
           </div>
           <div class="editor-wrap">
@@ -195,11 +195,13 @@ function App(): JSX.Element {
         </section>
 
         <div class="convert-col">
-          <button class="btn-convert" onClick={convertLeftToRight} disabled={!wasmReady()} title="dae → sing-box">
-            <FaSolidArrowRight size={22} />
+          <button class="btn-convert btn-down" onClick={convertLeftToRight} disabled={!wasmReady()} title="dae -> sing-box">
+            <span class="arrow-desktop"><FaSolidArrowRight size={22} /></span>
+            <span class="arrow-mobile"><FaSolidArrowDown size={22} /></span>
           </button>
-          <button class="btn-convert" onClick={convertRightToLeft} disabled={!wasmReady()} title="sing-box → dae">
-            <FaSolidArrowLeft size={22} />
+          <button class="btn-convert btn-up" onClick={convertRightToLeft} disabled={!wasmReady()} title="sing-box -> dae">
+            <span class="arrow-desktop"><FaSolidArrowLeft size={22} /></span>
+            <span class="arrow-mobile"><FaSolidArrowUp size={22} /></span>
           </button>
         </div>
 
@@ -207,7 +209,7 @@ function App(): JSX.Element {
           <div class="panel-header">
             <span class="tag tag-sing">sing-box</span>
             <button class="btn-copy" onClick={() => copyText("right")}>
-              {copiedSide() === "right" ? "✓ 已复制" : "复制"}
+              {copiedSide() === "right" ? "Copied" : "Copy"}
             </button>
           </div>
           <div class="editor-wrap">
@@ -246,7 +248,6 @@ function App(): JSX.Element {
           color: #e4e4e7;
         }
 
-        /* Scrollbar */
         * {
           scrollbar-width: thin;
           scrollbar-color: #27272a transparent;
@@ -266,7 +267,6 @@ function App(): JSX.Element {
           background: #3f3f46;
         }
 
-        /* Layout */
         .app-root {
           display: flex;
           flex-direction: column;
@@ -315,6 +315,7 @@ function App(): JSX.Element {
           cursor: not-allowed;
         }
 
+        /* Desktop: side-by-side layout */
         .editor-grid {
           flex: 1;
           display: grid;
@@ -380,7 +381,6 @@ function App(): JSX.Element {
           overflow: hidden;
         }
 
-        /* Editor overrides */
         .editor-wrap .prism-code-editor {
           height: 100%;
           font-size: 14px !important;
@@ -437,6 +437,10 @@ function App(): JSX.Element {
           box-shadow: none;
         }
 
+        .arrow-mobile {
+          display: none;
+        }
+
         .status-bar {
           padding: 6px 24px;
           background: #111114;
@@ -457,6 +461,60 @@ function App(): JSX.Element {
         }
         .status-error {
           color: #f87171;
+        }
+
+        /* Mobile: vertical stacked layout */
+        @media (max-width: 768px) {
+          .app-root {
+            height: auto;
+            min-height: 100vh;
+          }
+
+          .editor-grid {
+            flex: none;
+            grid-template-columns: 1fr;
+            grid-template-rows: auto auto auto;
+            overflow: visible;
+          }
+
+          .panel {
+            height: calc(100vh - 180px);
+            min-height: 300px;
+            overflow: hidden;
+          }
+
+          .editor-wrap {
+            flex: 1;
+            min-height: 0;
+            overflow: auto;
+          }
+
+          .editor-wrap .prism-code-editor {
+            height: 100%;
+          }
+
+          .convert-col {
+            flex-direction: row;
+            justify-content: center;
+            gap: 16px;
+            padding: 10px 0;
+            border-left: none;
+            border-right: none;
+            border-top: 1px solid #1e1e22;
+            border-bottom: 1px solid #1e1e22;
+          }
+
+          .arrow-desktop {
+            display: none;
+          }
+          .arrow-mobile {
+            display: inline-flex;
+          }
+
+          .status-bar {
+            position: sticky;
+            bottom: 0;
+          }
         }
       `}</style>
     </div>
