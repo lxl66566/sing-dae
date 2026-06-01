@@ -958,4 +958,121 @@ mod tests {
             rules: vec![],
         }
     }
+
+    #[test]
+    fn logical_or_rule_flattened() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    rule_type: Some("logical".into()),
+                    mode: Some("or".into()),
+                    rules: vec![
+                        RouteRule {
+                            outbound: Some("direct".into()),
+                            domain_suffix: vec!["a.com".into()],
+                            ..empty_route_rule()
+                        },
+                        RouteRule {
+                            outbound: Some("direct".into()),
+                            ip_cidr: vec!["10.0.0.0/8".into()],
+                            ..empty_route_rule()
+                        },
+                    ],
+                    ..empty_route_rule()
+                }],
+                ..empty_route()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.routing.rules.len(), 2);
+        assert_eq!(dae.routing.rules[0].condition, "domain(a.com)");
+        assert_eq!(dae.routing.rules[1].condition, "dip(10.0.0.0/8)");
+    }
+
+    #[test]
+    fn geosite_and_geoip_in_same_rule() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    outbound: Some("direct".into()),
+                    rule_set: vec!["geosite-cn".into(), "geoip-cn".into()],
+                    ..empty_route_rule()
+                }],
+                ..empty_route()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.routing.rules.len(), 2);
+        assert_eq!(dae.routing.rules[0].condition, "domain(geosite:cn)");
+        assert_eq!(dae.routing.rules[1].condition, "dip(geoip:cn)");
+    }
+
+    #[test]
+    fn domain_keyword_and_suffix_combined() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    outbound: Some("proxy".into()),
+                    domain_suffix: vec!["google.com".into()],
+                    domain_keyword: vec!["google".into()],
+                    ..empty_route_rule()
+                }],
+                ..empty_route()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.routing.rules.len(), 1);
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "domain(google.com)"
+        );
+    }
+
+    #[test]
+    fn sniff_and_hijack_dns_skipped() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![
+                    RouteRule {
+                        action: Some("sniff".into()),
+                        ..empty_route_rule()
+                    },
+                    RouteRule {
+                        action: Some("hijack-dns".into()),
+                        ..empty_route_rule()
+                    },
+                    RouteRule {
+                        outbound: Some("direct".into()),
+                        domain_suffix: vec!["example.com".into()],
+                        ..empty_route_rule()
+                    },
+                ],
+                ..empty_route()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.routing.rules.len(), 1);
+        assert_eq!(dae.routing.rules[0].condition, "domain(example.com)");
+    }
+
+    #[test]
+    fn clash_mode_skipped() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    outbound: Some("direct".into()),
+                    clash_mode: Some("Direct".into()),
+                    ..empty_route_rule()
+                }],
+                ..empty_route()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert!(dae.routing.rules.is_empty());
+    }
 }
