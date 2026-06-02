@@ -44,7 +44,7 @@ pub struct Dns {
     pub independent_cache: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DnsServer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
@@ -124,6 +124,8 @@ pub struct Outbound {
     pub server: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server_port: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_ports: Option<Vec<String>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub password: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

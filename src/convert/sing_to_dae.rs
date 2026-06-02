@@ -1,10 +1,12 @@
+use std::collections::HashSet;
+
 use crate::{
     dae::ast::{
         DaeConfig, DnsSection, Entry, FilterDef, GroupDef, KeyValue, PolicyDef, RoutingRule,
         RoutingSection,
     },
     error::{AppError, Result},
-    singbox::config::SingBoxConfig,
+    singbox::config::{DnsServer, SingBoxConfig},
 };
 
 #[allow(clippy::missing_errors_doc)]
@@ -95,9 +97,7 @@ fn build_node_link(ob: &crate::singbox::config::Outbound) -> Result<String> {
         .server
         .as_deref()
         .ok_or_else(|| AppError::Conversion(format!("outbound '{tag}' missing server")))?;
-    let port = ob
-        .server_port
-        .ok_or_else(|| AppError::Conversion(format!("outbound '{tag}' missing server_port")))?;
+    let port = resolve_port(ob, tag)?;
     let fragment = simple_percent_encode(tag);
     let sni = ob
         .tls
@@ -188,28 +188,36 @@ fn build_dns(sing: &SingBoxConfig) -> DnsSection {
     let mut dns = DnsSection::default();
 
     if let Some(sing_dns) = &sing.dns {
+        let valid_upstreams: HashSet<&str> = sing_dns
+            .servers
+            .iter()
+            .filter(|s| {
+                let t = s.dns_type.as_deref().unwrap_or("");
+                !matches!(t, "local" | "hosts" | "fakeip")
+            })
+            .filter_map(|s| s.tag.as_deref())
+            .collect();
+
         for srv in &sing_dns.servers {
-            let tag = srv.tag.as_deref().unwrap_or("unnamed");
-            let dns_type = srv.dns_type.as_deref().unwrap_or("udp");
-            let server = srv.server.as_deref().unwrap_or("0.0.0.0");
-
-            if matches!(dns_type, "local" | "hosts" | "fakeip") {
-                continue;
+            if let Some(tag) = srv.tag.as_deref()
+                && let Some(url) = build_dae_upstream_url(srv)
+            {
+                dns.upstream.push(KeyValue {
+                    key: tag.to_string(),
+                    value: url,
+                });
             }
-
-            dns.upstream.push(KeyValue {
-                key: tag.to_string(),
-                value: format!("{dns_type}://{server}:53"),
-            });
         }
 
         for rule in &sing_dns.rules {
-            if let Some(dae_rule) = convert_dns_rule(rule) {
+            if let Some(dae_rule) = convert_dns_rule(rule, &valid_upstreams) {
                 dns.request_rules.push(dae_rule);
             }
         }
 
-        if let Some(final_dns) = &sing_dns.final_dns {
+        if let Some(final_dns) = &sing_dns.final_dns
+            && valid_upstreams.contains(final_dns.as_str())
+        {
             dns.request_rules.push(RoutingRule {
                 condition: "fallback".to_string(),
                 target: final_dns.clone(),
@@ -220,26 +228,118 @@ fn build_dns(sing: &SingBoxConfig) -> DnsSection {
     dns
 }
 
-fn convert_dns_rule(rule: &crate::singbox::config::DnsRule) -> Option<RoutingRule> {
-    if !rule.query_type.is_empty() {
-        return None;
+// sing-box DnsServer.server is host-only (no port), but we handle
+// bracketed IPv6 ([::1]:53) and IPv4:port just in case.
+fn has_explicit_port(host: &str) -> bool {
+    if host.starts_with('[') {
+        return host
+            .find(']')
+            .is_some_and(|i| host[i + 1..].starts_with(':'));
     }
+    let last_colon = host.rfind(':');
+    let Some(i) = last_colon else {
+        return false;
+    };
+    host[i + 1..].parse::<u16>().is_ok()
+}
+
+fn build_dae_upstream_url(srv: &DnsServer) -> Option<String> {
+    let dns_type = srv.dns_type.as_deref()?;
+    match dns_type {
+        "local" | "hosts" | "fakeip" => return None,
+        _ => {}
+    }
+    let host = srv.server.as_deref()?;
+
+    let has_port = has_explicit_port(host);
+    match dns_type {
+        "udp" | "tcp" => {
+            if has_port {
+                Some(format!("{dns_type}://{host}"))
+            } else {
+                Some(format!("{dns_type}://{host}:53"))
+            }
+        }
+        "tcp+udp" => {
+            if has_port {
+                Some(format!("tcp+udp://{host}"))
+            } else {
+                Some(format!("tcp+udp://{host}:53"))
+            }
+        }
+        "https" => {
+            let path = srv.path.as_deref().unwrap_or("/dns-query");
+            if has_port {
+                Some(format!("https://{host}{path}"))
+            } else {
+                Some(format!("https://{host}:443{path}"))
+            }
+        }
+        "tls" => {
+            if has_port {
+                Some(format!("tls://{host}"))
+            } else {
+                Some(format!("tls://{host}:853"))
+            }
+        }
+        "h3" | "http3" => {
+            let path = srv.path.as_deref().unwrap_or("/dns-query");
+            if has_port {
+                Some(format!("{dns_type}://{host}{path}"))
+            } else {
+                Some(format!("{dns_type}://{host}:443{path}"))
+            }
+        }
+        "quic" => {
+            if has_port {
+                Some(format!("quic://{host}"))
+            } else {
+                Some(format!("quic://{host}:853"))
+            }
+        }
+        _ => Some(format!("{dns_type}://{host}:53")),
+    }
+}
+
+fn convert_dns_rule(
+    rule: &crate::singbox::config::DnsRule,
+    valid_upstreams: &HashSet<&str>,
+) -> Option<RoutingRule> {
     if rule.rule_type.as_deref() == Some("logical") {
         return None;
     }
 
+    let has_domain = !rule.domain.is_empty()
+        || !rule.domain_suffix.is_empty()
+        || !rule.domain_keyword.is_empty()
+        || !rule.domain_regex.is_empty()
+        || !rule.rule_set.is_empty();
+
     let target = if rule.action.as_deref() == Some("predefined") {
+        if !has_domain {
+            return None;
+        }
         "reject".to_string()
     } else {
-        rule.server.clone()?
+        let server = rule.server.as_deref()?;
+        if !valid_upstreams.contains(server) {
+            return None;
+        }
+        server.to_string()
     };
 
     let mut qname_args: Vec<String> = Vec::new();
+    for s in &rule.domain {
+        qname_args.push(format!("full:{s}"));
+    }
     for s in &rule.domain_suffix {
         qname_args.push(s.clone());
     }
-    for s in &rule.domain {
-        qname_args.push(s.clone());
+    for s in &rule.domain_keyword {
+        qname_args.push(format!("keyword:{s}"));
+    }
+    for s in &rule.domain_regex {
+        qname_args.push(format!("regex:{s}"));
     }
     for rs in &rule.rule_set {
         if let Some(name) = rs.strip_prefix("geosite-") {
@@ -363,6 +463,32 @@ fn collect_dip_args(rule: &crate::singbox::config::RouteRule) -> Vec<String> {
     args
 }
 
+fn resolve_port(ob: &crate::singbox::config::Outbound, tag: &str) -> Result<u16> {
+    if let Some(port) = ob.server_port {
+        return Ok(port);
+    }
+    if let Some(ports) = &ob.server_ports {
+        let first_str = ports.first().ok_or_else(|| {
+            AppError::Conversion(format!(
+                "outbound '{tag}' has no server_port and empty server_ports"
+            ))
+        })?;
+        let digits: String = first_str
+            .chars()
+            .take_while(|c| c.is_ascii_digit())
+            .collect();
+        let first = digits.parse::<u16>().ok().ok_or_else(|| {
+            AppError::Conversion(format!(
+                "outbound '{tag}' has invalid server_ports '{ports:?}'"
+            ))
+        })?;
+        return Ok(first);
+    }
+    Err(AppError::Conversion(format!(
+        "outbound '{tag}' missing server_port or server_ports"
+    )))
+}
+
 // ---- Encoding helpers ----
 
 const HEX_TABLE: &[u8; 16] = b"0123456789ABCDEF";
@@ -440,6 +566,7 @@ mod tests {
             tag: None,
             server: None,
             server_port: None,
+            server_ports: None,
             password: None,
             up_mbps: None,
             down_mbps: None,
@@ -481,6 +608,36 @@ mod tests {
                 assert!(value.starts_with("hy2://pass123@1.2.3.4:443/"));
                 assert!(value.contains("sni=example.com"));
                 assert!(value.ends_with("#my-hy2"));
+            }
+            Entry::Untagged(_) => panic!("expected tagged entry"),
+        }
+    }
+
+    #[test]
+    fn hysteria2_server_ports_fallback() {
+        let sing = SingBoxConfig {
+            outbounds: vec![Outbound {
+                outbound_type: "hysteria2".into(),
+                tag: Some("hy2-hop".into()),
+                server: Some("rfc.852456.xyz".into()),
+                server_port: None,
+                server_ports: Some(vec!["65501:65533".into()]),
+                password: Some("passwd".into()),
+                tls: Some(TlsConfig {
+                    enabled: Some(true),
+                    server_name: Some("rfc.852456.xyz".into()),
+                    insecure: None,
+                }),
+                ..empty_outbound()
+            }],
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.nodes.len(), 1);
+        match &dae.nodes[0] {
+            Entry::Tagged { key: _, value } => {
+                assert!(value.starts_with("hy2://passwd@rfc.852456.xyz:65501/"));
+                assert!(value.contains("sni=rfc.852456.xyz"));
             }
             Entry::Untagged(_) => panic!("expected tagged entry"),
         }
@@ -1010,6 +1167,157 @@ mod tests {
     }
 
     #[test]
+    fn dns_https_upstream_with_path() {
+        let sing = SingBoxConfig {
+            dns: Some(Dns {
+                servers: vec![DnsServer {
+                    tag: Some("mydoh".into()),
+                    dns_type: Some("https".into()),
+                    server: Some("dns.cloudflare.com".into()),
+                    path: Some("/dns-query".into()),
+                    ..empty_dns_server()
+                }],
+                ..empty_dns()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.dns.upstream.len(), 1);
+        assert_eq!(
+            dae.dns.upstream[0].value,
+            "https://dns.cloudflare.com:443/dns-query"
+        );
+    }
+
+    #[test]
+    fn dns_upstream_skips_local_hosts_fakeip() {
+        let sing = SingBoxConfig {
+            dns: Some(Dns {
+                servers: vec![
+                    DnsServer {
+                        tag: Some("real_upstream".into()),
+                        dns_type: Some("udp".into()),
+                        server: Some("8.8.8.8".into()),
+                        ..empty_dns_server()
+                    },
+                    DnsServer {
+                        tag: Some("local_dns".into()),
+                        dns_type: Some("local".into()),
+                        ..empty_dns_server()
+                    },
+                    DnsServer {
+                        tag: Some("hosts_table".into()),
+                        dns_type: Some("hosts".into()),
+                        ..empty_dns_server()
+                    },
+                    DnsServer {
+                        tag: Some("fake_dns".into()),
+                        dns_type: Some("fakeip".into()),
+                        ..empty_dns_server()
+                    },
+                ],
+                ..empty_dns()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.dns.upstream.len(), 1);
+        assert_eq!(dae.dns.upstream[0].key, "real_upstream");
+    }
+
+    #[test]
+    fn dns_rule_domain_exact_to_full() {
+        let sing = SingBoxConfig {
+            dns: Some(Dns {
+                servers: vec![DnsServer {
+                    tag: Some("mydns".into()),
+                    dns_type: Some("udp".into()),
+                    server: Some("1.1.1.1".into()),
+                    ..empty_dns_server()
+                }],
+                rules: vec![DnsRule {
+                    server: Some("mydns".into()),
+                    domain: vec!["exact.com".into()],
+                    ..empty_dns_rule()
+                }],
+                ..empty_dns()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        let rule = &dae.dns.request_rules[0];
+        assert_eq!(rule.condition, "qname(full:exact.com)");
+        assert_eq!(rule.target, "mydns");
+    }
+
+    #[test]
+    fn dns_rule_domain_keyword_and_regex() {
+        let sing = SingBoxConfig {
+            dns: Some(Dns {
+                servers: vec![DnsServer {
+                    tag: Some("mydns".into()),
+                    dns_type: Some("udp".into()),
+                    server: Some("1.1.1.1".into()),
+                    ..empty_dns_server()
+                }],
+                rules: vec![DnsRule {
+                    server: Some("mydns".into()),
+                    domain_keyword: vec!["ad".into(), "track".into()],
+                    domain_regex: vec!["\\.cn$".into()],
+                    ..empty_dns_rule()
+                }],
+                ..empty_dns()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        let rule = &dae.dns.request_rules[0];
+        assert!(rule.condition.contains("keyword:ad"));
+        assert!(rule.condition.contains("keyword:track"));
+        assert!(rule.condition.contains("regex:\\.cn$"));
+        assert_eq!(rule.target, "mydns");
+    }
+
+    #[test]
+    fn dns_rule_skips_non_upstream_server() {
+        let sing = SingBoxConfig {
+            dns: Some(Dns {
+                servers: vec![
+                    DnsServer {
+                        tag: Some("real_upstream".into()),
+                        dns_type: Some("udp".into()),
+                        server: Some("8.8.8.8".into()),
+                        ..empty_dns_server()
+                    },
+                    DnsServer {
+                        tag: Some("local_dns".into()),
+                        dns_type: Some("local".into()),
+                        ..empty_dns_server()
+                    },
+                ],
+                rules: vec![
+                    DnsRule {
+                        server: Some("real_upstream".into()),
+                        domain_suffix: vec!["valid.com".into()],
+                        ..empty_dns_rule()
+                    },
+                    DnsRule {
+                        server: Some("local_dns".into()),
+                        domain_suffix: vec!["skipped.com".into()],
+                        ..empty_dns_rule()
+                    },
+                ],
+                ..empty_dns()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.dns.request_rules.len(), 1);
+        assert_eq!(dae.dns.request_rules[0].condition, "qname(valid.com)");
+        assert_eq!(dae.dns.request_rules[0].target, "real_upstream");
+    }
+
+    #[test]
     fn domain_keyword_and_suffix_combined() {
         let sing = SingBoxConfig {
             route: Some(Route {
@@ -1025,10 +1333,7 @@ mod tests {
         };
         let dae = convert(&sing).unwrap();
         assert_eq!(dae.routing.rules.len(), 1);
-        assert_eq!(
-            dae.routing.rules[0].condition,
-            "domain(google.com)"
-        );
+        assert_eq!(dae.routing.rules[0].condition, "domain(google.com)");
     }
 
     #[test]
@@ -1074,5 +1379,42 @@ mod tests {
         };
         let dae = convert(&sing).unwrap();
         assert!(dae.routing.rules.is_empty());
+    }
+
+    #[test]
+    fn dns_upstream_ipv6_no_port() {
+        let sing = SingBoxConfig {
+            dns: Some(Dns {
+                servers: vec![DnsServer {
+                    tag: Some("v6dns".into()),
+                    dns_type: Some("udp".into()),
+                    server: Some("2001:db8::1".into()),
+                    ..empty_dns_server()
+                }],
+                ..empty_dns()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.dns.upstream.len(), 1);
+        assert_eq!(dae.dns.upstream[0].value, "udp://2001:db8::1");
+    }
+
+    #[test]
+    fn dns_upstream_ipv4_with_port() {
+        let sing = SingBoxConfig {
+            dns: Some(Dns {
+                servers: vec![DnsServer {
+                    tag: Some("mydns".into()),
+                    dns_type: Some("udp".into()),
+                    server: Some("8.8.8.8:5353".into()),
+                    ..empty_dns_server()
+                }],
+                ..empty_dns()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.dns.upstream[0].value, "udp://8.8.8.8:5353");
     }
 }

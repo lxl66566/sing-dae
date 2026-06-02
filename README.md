@@ -18,6 +18,7 @@ sing-box (JSON/JSONC) 与 dae (DSL) 配置格式的双向转换工具。
 
 ### dae -> sing-box 自动补充
 
+<!-- prettier-ignore -->
 | 配置项 | 默认值 | 说明 |
 | ------ | ------ | ---- |
 | inbounds | `mixed` 入站，监听 `127.0.0.1:1080` | sing-box 必需的入站配置 |
@@ -26,6 +27,7 @@ sing-box (JSON/JSONC) 与 dae (DSL) 配置格式的双向转换工具。
 
 ### sing-box -> dae 自动补充
 
+<!-- prettier-ignore -->
 | 配置项 | 默认值 | 说明 |
 | ------ | ------ | ---- |
 | global.tproxy_port | `12345` | dae 透明代理端口 |
@@ -64,6 +66,7 @@ sing-box (JSON/JSONC) 与 dae (DSL) 配置格式的双向转换工具。
 
 ```sh
 # 编译 WASM
+cargo build --release --target wasm32-unknown-unknown
 wasm-bindgen target/wasm32-unknown-unknown/release/sing_dae.wasm --out-dir frontend/pkg --target web
 
 # 前端

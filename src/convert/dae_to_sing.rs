@@ -167,6 +167,7 @@ fn parse_node_link(tag: &str, link: &str) -> Result<Outbound> {
         tag: Some(tag.to_string()),
         server: Some(host),
         server_port: port,
+        server_ports: None,
         password,
         up_mbps: None,
         down_mbps: None,
@@ -207,6 +208,7 @@ fn build_group_outbounds(dae: &DaeConfig, all_node_tags: &[String]) -> Result<Ve
                 tag: Some(group.name.clone()),
                 server: None,
                 server_port: None,
+                server_ports: None,
                 password: None,
                 up_mbps: None,
                 down_mbps: None,
@@ -315,21 +317,49 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
     })
 }
 
-fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
-    let (dns_type, server) = if let Some((scheme, rest)) = url.split_once("://") {
-        let server = rest.rsplit_once(':').map_or(rest, |(h, _)| h).to_string();
-        (scheme.to_string(), server)
+fn split_host_port(input: &str) -> (&str, Option<&str>) {
+    if let Some(bracket_end) = input.find(']') {
+        let host = &input[..=bracket_end];
+        let rest = &input[bracket_end + 1..];
+        if let Some(port) = rest.strip_prefix(':') {
+            (host, Some(port))
+        } else {
+            (host, None)
+        }
+    } else if let Some(colon) = input.rfind(':') {
+        (&input[..colon], Some(&input[colon + 1..]))
     } else {
-        ("udp".to_string(), url.to_string())
+        (input, None)
+    }
+}
+
+fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
+    let Some((scheme, rest)) = url.split_once("://") else {
+        return DnsServer {
+            tag: Some(tag.to_string()),
+            dns_type: Some("udp".to_string()),
+            server: Some(url.to_string()),
+            ..DnsServer::default()
+        };
     };
 
+    let (host_part, path) = match (scheme, rest.find('/')) {
+        ("https" | "h3" | "http3", Some(pos)) => {
+            let (h, p) = rest.split_at(pos);
+            (h, Some(p.to_string()))
+        }
+        _ => (rest, None),
+    };
+
+    let (server, _port) = split_host_port(host_part);
+
     DnsServer {
-        server: Some(server),
+        server: Some(server.to_string()),
         tag: Some(tag.to_string()),
-        dns_type: Some(dns_type),
+        dns_type: Some(scheme.to_string()),
         detour: None,
         domain_resolver: None,
-        path: None,
+        path,
         inet4_range: None,
         inet6_range: None,
         predefined: None,
@@ -344,7 +374,7 @@ fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
         let args = parse_comma_args(args_str);
         let mut dns_rule = new_dns_rule();
 
-        if target == "reject" {
+        if target == "reject" || target == "asis" {
             dns_rule.action = Some("predefined".to_string());
             dns_rule.rcode = Some("NOERROR".to_string());
         } else {
@@ -354,8 +384,14 @@ fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
         for arg in &args {
             if let Some(name) = arg.strip_prefix("geosite:") {
                 dns_rule.rule_set.push(format!("geosite-{name}"));
-            } else if let Some(name) = arg.strip_prefix("geoip:") {
-                dns_rule.rule_set.push(format!("geoip-{name}"));
+            } else if let Some(name) = arg.strip_prefix("full:") {
+                dns_rule.domain.push(clean_quoted(name));
+            } else if let Some(name) = arg.strip_prefix("keyword:") {
+                dns_rule.domain_keyword.push(clean_quoted(name));
+            } else if let Some(name) = arg.strip_prefix("regex:") {
+                dns_rule.domain_regex.push(clean_quoted(name));
+            } else if let Some(name) = arg.strip_prefix("suffix:") {
+                dns_rule.domain_suffix.push(clean_quoted(name));
             } else {
                 dns_rule.domain_suffix.push(arg.clone());
             }
@@ -508,10 +544,10 @@ fn collect_tags_from_condition(condition: &str, tags: &mut HashSet<String>) {
             for arg in &args {
                 if let Some(name) = arg.strip_prefix("geosite:") {
                     tags.insert(format!("geosite-{name}"));
-                } else if let Some(name) = arg.strip_prefix("geoip:") {
-                    if name != "private" {
-                        tags.insert(format!("geoip-{name}"));
-                    }
+                } else if let Some(name) = arg.strip_prefix("geoip:")
+                    && name != "private"
+                {
+                    tags.insert(format!("geoip-{name}"));
                 }
             }
         }
@@ -526,9 +562,7 @@ fn build_rule_set(tags: &HashSet<String>) -> Vec<RuleSet> {
         .into_iter()
         .map(|tag| {
             let url = if tag.starts_with("geoip-") {
-                format!(
-                    "https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/{tag}.srs"
-                )
+                format!("https://raw.githubusercontent.com/SagerNet/sing-geoip/rule-set/{tag}.srs")
             } else {
                 format!(
                     "https://raw.githubusercontent.com/SagerNet/sing-geosite/rule-set/{tag}.srs"
@@ -623,6 +657,7 @@ fn new_outbound(tag: &str, outbound_type: &str) -> Outbound {
         tag: Some(tag.to_string()),
         server: None,
         server_port: None,
+        server_ports: None,
         password: None,
         up_mbps: None,
         down_mbps: None,
@@ -887,6 +922,52 @@ mod tests {
     }
 
     #[test]
+    fn dns_https_upstream_with_path_to_sing() {
+        let dae = DaeConfig {
+            dns: DnsSection {
+                upstream: vec![KeyValue {
+                    key: "mydoh".into(),
+                    value: "https://dns.cloudflare.com:443/dns-query".into(),
+                }],
+                ..DnsSection::default()
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae).unwrap();
+        let dns = cfg.dns.unwrap();
+        assert_eq!(dns.servers.len(), 1);
+        assert_eq!(dns.servers[0].tag.as_deref(), Some("mydoh"));
+        assert_eq!(dns.servers[0].dns_type.as_deref(), Some("https"));
+        assert_eq!(dns.servers[0].server.as_deref(), Some("dns.cloudflare.com"));
+        assert_eq!(dns.servers[0].path.as_deref(), Some("/dns-query"));
+    }
+
+    #[test]
+    fn dns_rule_qname_full_keyword_regex() {
+        let dae = DaeConfig {
+            dns: DnsSection {
+                upstream: vec![KeyValue {
+                    key: "mydns".into(),
+                    value: "udp://1.1.1.1:53".into(),
+                }],
+                request_rules: vec![RoutingRule {
+                    condition: "qname(full:exact.com, keyword:ad, regex:'\\.cn$')".into(),
+                    target: "mydns".into(),
+                }],
+                ..DnsSection::default()
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae).unwrap();
+        let dns = cfg.dns.unwrap();
+        assert_eq!(dns.rules.len(), 1);
+        let rule = &dns.rules[0];
+        assert_eq!(rule.domain, vec!["exact.com"]);
+        assert_eq!(rule.domain_keyword, vec!["ad"]);
+        assert_eq!(rule.domain_regex, vec!["\\.cn$"]);
+    }
+
+    #[test]
     fn dns_upstream_and_request_rules() {
         let dae = DaeConfig {
             dns: DnsSection {
@@ -936,5 +1017,24 @@ mod tests {
         assert_eq!(dns.rules[1].rule_set, vec!["geosite-category-ads"]);
 
         assert_eq!(dns.final_dns.as_deref(), Some("googledns"));
+    }
+
+    #[test]
+    fn dns_upstream_ipv6_bracketed_with_port() {
+        let dae = DaeConfig {
+            dns: DnsSection {
+                upstream: vec![KeyValue {
+                    key: "v6dns".into(),
+                    value: "udp://[2001:db8::1]:53".into(),
+                }],
+                ..DnsSection::default()
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae).unwrap();
+        let srv = &cfg.dns.unwrap().servers[0];
+        assert_eq!(srv.tag.as_deref(), Some("v6dns"));
+        assert_eq!(srv.dns_type.as_deref(), Some("udp"));
+        assert_eq!(srv.server.as_deref(), Some("[2001:db8::1]"));
     }
 }

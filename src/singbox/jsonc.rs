@@ -90,7 +90,12 @@ fn strip_trailing_commas(input: &str) -> String {
 
         if trimmed[i] == b',' {
             let mut j = i + 1;
-            while j < len && (trimmed[j] == b' ' || trimmed[j] == b'\t' || trimmed[j] == b'\n' || trimmed[j] == b'\r') {
+            while j < len
+                && (trimmed[j] == b' '
+                    || trimmed[j] == b'\t'
+                    || trimmed[j] == b'\n'
+                    || trimmed[j] == b'\r')
+            {
                 j += 1;
             }
             if j < len && (trimmed[j] == b']' || trimmed[j] == b'}') {
@@ -138,7 +143,10 @@ mod tests {
     #[test]
     fn preserve_comment_in_string() {
         let input = r#"{"url": "http://example.com//path"}"#;
-        assert_eq!(strip_jsonc(input), "{\"url\": \"http://example.com//path\"}");
+        assert_eq!(
+            strip_jsonc(input),
+            "{\"url\": \"http://example.com//path\"}"
+        );
     }
 
     #[test]
