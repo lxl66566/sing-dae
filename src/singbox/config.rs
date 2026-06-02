@@ -32,7 +32,7 @@ pub struct Log {
     pub timestamp: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Dns {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub servers: Vec<DnsServer>,
@@ -66,7 +66,7 @@ pub struct DnsServer {
     pub predefined: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DnsRule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
@@ -114,7 +114,7 @@ pub struct Inbound {
     pub listen_port: Option<u16>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Outbound {
     #[serde(rename = "type")]
     pub outbound_type: String,
@@ -155,7 +155,7 @@ pub struct TlsConfig {
     pub insecure: Option<bool>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Route {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub rules: Vec<RouteRule>,
@@ -167,7 +167,7 @@ pub struct Route {
     pub default_domain_resolver: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RouteRule {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbound: Option<String>,

@@ -1,6 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::{
+    convert::dns_utils::{clean_quoted, extract_paren_args, parse_comma_args, parse_dns_upstream},
     dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule},
     error::{AppError, Result},
     singbox::config::{
@@ -26,7 +27,11 @@ pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
 
     let mut outbounds = Vec::new();
     outbounds.extend(node_outbounds);
-    outbounds.push(new_outbound("direct", "direct"));
+    outbounds.push(Outbound {
+        outbound_type: "direct".into(),
+        tag: Some("direct".into()),
+        ..Default::default()
+    });
     outbounds.extend(group_outbounds);
 
     let dns = build_dns(dae);
@@ -317,62 +322,13 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
     })
 }
 
-fn split_host_port(input: &str) -> (&str, Option<&str>) {
-    if let Some(bracket_end) = input.find(']') {
-        let host = &input[..=bracket_end];
-        let rest = &input[bracket_end + 1..];
-        if let Some(port) = rest.strip_prefix(':') {
-            (host, Some(port))
-        } else {
-            (host, None)
-        }
-    } else if let Some(colon) = input.rfind(':') {
-        (&input[..colon], Some(&input[colon + 1..]))
-    } else {
-        (input, None)
-    }
-}
-
-fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
-    let Some((scheme, rest)) = url.split_once("://") else {
-        return DnsServer {
-            tag: Some(tag.to_string()),
-            dns_type: Some("udp".to_string()),
-            server: Some(url.to_string()),
-            ..DnsServer::default()
-        };
-    };
-
-    let (host_part, path) = match (scheme, rest.find('/')) {
-        ("https" | "h3" | "http3", Some(pos)) => {
-            let (h, p) = rest.split_at(pos);
-            (h, Some(p.to_string()))
-        }
-        _ => (rest, None),
-    };
-
-    let (server, _port) = split_host_port(host_part);
-
-    DnsServer {
-        server: Some(server.to_string()),
-        tag: Some(tag.to_string()),
-        dns_type: Some(scheme.to_string()),
-        detour: None,
-        domain_resolver: None,
-        path,
-        inet4_range: None,
-        inet6_range: None,
-        predefined: None,
-    }
-}
-
 fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
     let condition = rule.condition.trim();
     let target = rule.target.trim();
 
     if let Some(args_str) = extract_paren_args(condition, "qname") {
         let args = parse_comma_args(args_str);
-        let mut dns_rule = new_dns_rule();
+        let mut dns_rule = DnsRule::default();
 
         if target == "reject" || target == "asis" {
             dns_rule.action = Some("predefined".to_string());
@@ -401,7 +357,7 @@ fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
 
     if let Some(args_str) = extract_paren_args(condition, "ip") {
         let args = parse_comma_args(args_str);
-        let mut dns_rule = new_dns_rule();
+        let mut dns_rule = DnsRule::default();
 
         if target != "accept" {
             dns_rule.server = Some(target.to_string());
@@ -418,16 +374,17 @@ fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
     }
 
     if extract_paren_args(condition, "upstream").is_some() {
-        let mut dns_rule = new_dns_rule();
+        let mut dns_rule = DnsRule::default();
         if target != "accept" {
             dns_rule.server = Some(target.to_string());
         }
         return dns_rule;
     }
 
-    let mut dns_rule = new_dns_rule();
-    dns_rule.server = Some(target.to_string());
-    dns_rule
+    DnsRule {
+        server: Some(target.to_string()),
+        ..Default::default()
+    }
 }
 
 // ---- Route ----
@@ -461,7 +418,7 @@ fn convert_routing_rule(rule: &RoutingRule) -> RouteRule {
             action: target.action,
             rule_set,
             domain_suffix,
-            ..new_route_rule()
+            ..Default::default()
         };
     }
 
@@ -474,7 +431,7 @@ fn convert_routing_rule(rule: &RoutingRule) -> RouteRule {
             ip_is_private,
             rule_set,
             ip_cidr,
-            ..new_route_rule()
+            ..Default::default()
         };
     }
 
@@ -484,14 +441,14 @@ fn convert_routing_rule(rule: &RoutingRule) -> RouteRule {
             outbound: target.outbound,
             action: target.action,
             process_name: args,
-            ..new_route_rule()
+            ..Default::default()
         };
     }
 
     RouteRule {
         outbound: target.outbound,
         action: target.action,
-        ..new_route_rule()
+        ..Default::default()
     }
 }
 
@@ -614,104 +571,6 @@ fn categorize_dip_args(args: &[String]) -> (Option<bool>, Vec<String>, Vec<Strin
     }
 
     (ip_is_private, rule_set, ip_cidr)
-}
-
-// ---- String helpers ----
-
-fn extract_paren_args<'a>(s: &'a str, func: &str) -> Option<&'a str> {
-    let s = s.trim();
-    if !s.starts_with(func) || !s.contains('(') {
-        return None;
-    }
-    let start = s.find('(')?;
-    let end = s.rfind(')')?;
-    if end <= start {
-        return None;
-    }
-    Some(s[start + 1..end].trim())
-}
-
-fn parse_comma_args(s: &str) -> Vec<String> {
-    s.split(',')
-        .map(|arg| clean_quoted(arg.trim()))
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
-fn clean_quoted(s: &str) -> String {
-    let trimmed = s.trim();
-    if (trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2)
-        || (trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2)
-    {
-        trimmed[1..trimmed.len() - 1].to_owned()
-    } else {
-        trimmed.to_owned()
-    }
-}
-
-// ---- Struct constructors ----
-
-fn new_outbound(tag: &str, outbound_type: &str) -> Outbound {
-    Outbound {
-        outbound_type: outbound_type.to_string(),
-        tag: Some(tag.to_string()),
-        server: None,
-        server_port: None,
-        server_ports: None,
-        password: None,
-        up_mbps: None,
-        down_mbps: None,
-        tls: None,
-        method: None,
-        uuid: None,
-        security: None,
-        outbounds: vec![],
-    }
-}
-
-fn new_route_rule() -> RouteRule {
-    RouteRule {
-        outbound: None,
-        rule_type: None,
-        mode: None,
-        action: None,
-        invert: None,
-        clash_mode: None,
-        ip_is_private: None,
-        network: vec![],
-        port: vec![],
-        port_range: vec![],
-        domain: vec![],
-        domain_suffix: vec![],
-        domain_keyword: vec![],
-        domain_regex: vec![],
-        ip_cidr: vec![],
-        process_name: vec![],
-        protocol: vec![],
-        rule_set: vec![],
-        rules: vec![],
-    }
-}
-
-fn new_dns_rule() -> DnsRule {
-    DnsRule {
-        server: None,
-        rule_type: None,
-        mode: None,
-        action: None,
-        rcode: None,
-        invert: None,
-        rewrite_ttl: None,
-        clash_mode: None,
-        ip_accept_any: None,
-        query_type: vec![],
-        domain: vec![],
-        domain_suffix: vec![],
-        domain_keyword: vec![],
-        domain_regex: vec![],
-        rule_set: vec![],
-        rules: vec![],
-    }
 }
 
 #[cfg(test)]

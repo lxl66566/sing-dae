@@ -1,12 +1,13 @@
 use std::collections::HashSet;
 
 use crate::{
+    convert::dns_utils::{build_dae_upstream_url, is_virtual_dns_type},
     dae::ast::{
         DaeConfig, DnsSection, Entry, FilterDef, GroupDef, KeyValue, PolicyDef, RoutingRule,
         RoutingSection,
     },
     error::{AppError, Result},
-    singbox::config::{DnsServer, SingBoxConfig},
+    singbox::config::SingBoxConfig,
 };
 
 #[allow(clippy::missing_errors_doc)]
@@ -191,10 +192,7 @@ fn build_dns(sing: &SingBoxConfig) -> DnsSection {
         let valid_upstreams: HashSet<&str> = sing_dns
             .servers
             .iter()
-            .filter(|s| {
-                let t = s.dns_type.as_deref().unwrap_or("");
-                !matches!(t, "local" | "hosts" | "fakeip")
-            })
+            .filter(|s| !is_virtual_dns_type(s.dns_type.as_deref().unwrap_or("")))
             .filter_map(|s| s.tag.as_deref())
             .collect();
 
@@ -226,79 +224,6 @@ fn build_dns(sing: &SingBoxConfig) -> DnsSection {
     }
 
     dns
-}
-
-// sing-box DnsServer.server is host-only (no port), but we handle
-// bracketed IPv6 ([::1]:53) and IPv4:port just in case.
-fn has_explicit_port(host: &str) -> bool {
-    if host.starts_with('[') {
-        return host
-            .find(']')
-            .is_some_and(|i| host[i + 1..].starts_with(':'));
-    }
-    let last_colon = host.rfind(':');
-    let Some(i) = last_colon else {
-        return false;
-    };
-    host[i + 1..].parse::<u16>().is_ok()
-}
-
-fn build_dae_upstream_url(srv: &DnsServer) -> Option<String> {
-    let dns_type = srv.dns_type.as_deref()?;
-    match dns_type {
-        "local" | "hosts" | "fakeip" => return None,
-        _ => {}
-    }
-    let host = srv.server.as_deref()?;
-
-    let has_port = has_explicit_port(host);
-    match dns_type {
-        "udp" | "tcp" => {
-            if has_port {
-                Some(format!("{dns_type}://{host}"))
-            } else {
-                Some(format!("{dns_type}://{host}:53"))
-            }
-        }
-        "tcp+udp" => {
-            if has_port {
-                Some(format!("tcp+udp://{host}"))
-            } else {
-                Some(format!("tcp+udp://{host}:53"))
-            }
-        }
-        "https" => {
-            let path = srv.path.as_deref().unwrap_or("/dns-query");
-            if has_port {
-                Some(format!("https://{host}{path}"))
-            } else {
-                Some(format!("https://{host}:443{path}"))
-            }
-        }
-        "tls" => {
-            if has_port {
-                Some(format!("tls://{host}"))
-            } else {
-                Some(format!("tls://{host}:853"))
-            }
-        }
-        "h3" | "http3" => {
-            let path = srv.path.as_deref().unwrap_or("/dns-query");
-            if has_port {
-                Some(format!("{dns_type}://{host}{path}"))
-            } else {
-                Some(format!("{dns_type}://{host}:443{path}"))
-            }
-        }
-        "quic" => {
-            if has_port {
-                Some(format!("quic://{host}"))
-            } else {
-                Some(format!("quic://{host}:853"))
-            }
-        }
-        _ => Some(format!("{dns_type}://{host}:53")),
-    }
 }
 
 fn convert_dns_rule(
@@ -556,25 +481,7 @@ mod tests {
                 server_name: Some("example.com".into()),
                 insecure: None,
             }),
-            ..empty_outbound()
-        }
-    }
-
-    fn empty_outbound() -> Outbound {
-        Outbound {
-            outbound_type: String::new(),
-            tag: None,
-            server: None,
-            server_port: None,
-            server_ports: None,
-            password: None,
-            up_mbps: None,
-            down_mbps: None,
-            tls: None,
-            method: None,
-            uuid: None,
-            security: None,
-            outbounds: vec![],
+            ..Default::default()
         }
     }
 
@@ -628,7 +535,7 @@ mod tests {
                     server_name: Some("rfc.852456.xyz".into()),
                     insecure: None,
                 }),
-                ..empty_outbound()
+                ..Default::default()
             }],
             ..SingBoxConfig::default()
         };
@@ -657,7 +564,7 @@ mod tests {
                     server_name: Some("trojan.example.com".into()),
                     insecure: None,
                 }),
-                ..empty_outbound()
+                ..Default::default()
             }],
             ..SingBoxConfig::default()
         };
@@ -682,7 +589,7 @@ mod tests {
                 Outbound {
                     outbound_type: "direct".into(),
                     tag: Some("direct".into()),
-                    ..empty_outbound()
+                    ..Default::default()
                 },
             ],
             ..SingBoxConfig::default()
@@ -704,7 +611,7 @@ mod tests {
                     outbound_type: "selector".into(),
                     tag: Some("my-group".into()),
                     outbounds: vec!["my-hy2".into()],
-                    ..empty_outbound()
+                    ..Default::default()
                 },
             ],
             ..SingBoxConfig::default()
@@ -724,7 +631,7 @@ mod tests {
                 outbound_type: "urltest".into(),
                 tag: Some("auto-group".into()),
                 outbounds: vec!["a".into(), "b".into()],
-                ..empty_outbound()
+                ..Default::default()
             }],
             ..SingBoxConfig::default()
         };
@@ -742,17 +649,17 @@ mod tests {
                         tag: Some("local".into()),
                         dns_type: Some("udp".into()),
                         server: Some("223.5.5.5".into()),
-                        ..empty_dns_server()
+                        ..Default::default()
                     },
                     DnsServer {
                         tag: Some("remote".into()),
                         dns_type: Some("tcp+udp".into()),
                         server: Some("dns.google.com".into()),
-                        ..empty_dns_server()
+                        ..Default::default()
                     },
                 ],
                 final_dns: Some("remote".into()),
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -775,14 +682,14 @@ mod tests {
                     tag: Some("mydns".into()),
                     dns_type: Some("udp".into()),
                     server: Some("1.1.1.1".into()),
-                    ..empty_dns_server()
+                    ..Default::default()
                 }],
                 rules: vec![DnsRule {
                     server: Some("mydns".into()),
                     domain_suffix: vec!["example.com".into(), "test.org".into()],
-                    ..empty_dns_rule()
+                    ..Default::default()
                 }],
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -801,9 +708,9 @@ mod tests {
                     action: Some("predefined".into()),
                     rcode: Some("NXDOMAIN".into()),
                     rule_set: vec!["geosite-category-ads-all".into()],
-                    ..empty_dns_rule()
+                    ..Default::default()
                 }],
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -820,9 +727,9 @@ mod tests {
                 rules: vec![RouteRule {
                     outbound: Some("direct".into()),
                     domain_suffix: vec!["example.com".into(), "test.org".into()],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -842,9 +749,9 @@ mod tests {
                 rules: vec![RouteRule {
                     outbound: Some("direct".into()),
                     rule_set: vec!["geosite-cn".into(), "geosite-bilibili".into()],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -862,9 +769,9 @@ mod tests {
                 rules: vec![RouteRule {
                     outbound: Some("direct".into()),
                     ip_is_private: Some(true),
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -880,9 +787,9 @@ mod tests {
                 rules: vec![RouteRule {
                     outbound: Some("proxy".into()),
                     ip_cidr: vec!["10.0.0.0/8".into(), "172.16.0.0/12".into()],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -900,9 +807,9 @@ mod tests {
                 rules: vec![RouteRule {
                     outbound: Some("direct".into()),
                     rule_set: vec!["geoip-cn".into()],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -917,9 +824,9 @@ mod tests {
                 rules: vec![RouteRule {
                     action: Some("reject".into()),
                     domain_suffix: vec!["ads.example.com".into()],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -934,9 +841,9 @@ mod tests {
                 rules: vec![RouteRule {
                     outbound: Some("direct".into()),
                     process_name: vec!["sshd".into(), "systemd-resolved".into()],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -952,7 +859,7 @@ mod tests {
         let sing = SingBoxConfig {
             route: Some(Route {
                 final_outbound: Some("proxy".into()),
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -967,19 +874,19 @@ mod tests {
                 rules: vec![
                     RouteRule {
                         action: Some("sniff".into()),
-                        ..empty_route_rule()
+                        ..Default::default()
                     },
                     RouteRule {
                         action: Some("hijack-dns".into()),
-                        ..empty_route_rule()
+                        ..Default::default()
                     },
                     RouteRule {
                         outbound: Some("proxy".into()),
                         domain_suffix: vec!["example.com".into()],
-                        ..empty_route_rule()
+                        ..Default::default()
                     },
                 ],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -999,16 +906,16 @@ mod tests {
                     rules: vec![
                         RouteRule {
                             port: vec![53],
-                            ..empty_route_rule()
+                            ..Default::default()
                         },
                         RouteRule {
                             protocol: vec!["dns".into()],
-                            ..empty_route_rule()
+                            ..Default::default()
                         },
                     ],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1025,9 +932,9 @@ mod tests {
                     outbound: Some("direct".into()),
                     domain_suffix: vec!["example.com".into()],
                     ip_cidr: vec!["10.0.0.0/8".into()],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1037,83 +944,6 @@ mod tests {
         assert_eq!(dae.routing.rules[1].condition, "dip(10.0.0.0/8)");
         assert_eq!(dae.routing.rules[0].target, "direct");
         assert_eq!(dae.routing.rules[1].target, "direct");
-    }
-
-    fn empty_dns_server() -> DnsServer {
-        DnsServer {
-            server: None,
-            tag: None,
-            dns_type: None,
-            detour: None,
-            domain_resolver: None,
-            path: None,
-            inet4_range: None,
-            inet6_range: None,
-            predefined: None,
-        }
-    }
-
-    fn empty_dns() -> Dns {
-        Dns {
-            servers: vec![],
-            rules: vec![],
-            final_dns: None,
-            independent_cache: None,
-        }
-    }
-
-    fn empty_dns_rule() -> DnsRule {
-        DnsRule {
-            server: None,
-            rule_type: None,
-            mode: None,
-            action: None,
-            rcode: None,
-            invert: None,
-            rewrite_ttl: None,
-            clash_mode: None,
-            ip_accept_any: None,
-            query_type: vec![],
-            domain: vec![],
-            domain_suffix: vec![],
-            domain_keyword: vec![],
-            domain_regex: vec![],
-            rule_set: vec![],
-            rules: vec![],
-        }
-    }
-
-    fn empty_route() -> Route {
-        Route {
-            rules: vec![],
-            rule_set: vec![],
-            final_outbound: None,
-            default_domain_resolver: None,
-        }
-    }
-
-    fn empty_route_rule() -> RouteRule {
-        RouteRule {
-            outbound: None,
-            rule_type: None,
-            mode: None,
-            action: None,
-            invert: None,
-            clash_mode: None,
-            ip_is_private: None,
-            network: vec![],
-            port: vec![],
-            port_range: vec![],
-            domain: vec![],
-            domain_suffix: vec![],
-            domain_keyword: vec![],
-            domain_regex: vec![],
-            ip_cidr: vec![],
-            process_name: vec![],
-            protocol: vec![],
-            rule_set: vec![],
-            rules: vec![],
-        }
     }
 
     #[test]
@@ -1127,17 +957,17 @@ mod tests {
                         RouteRule {
                             outbound: Some("direct".into()),
                             domain_suffix: vec!["a.com".into()],
-                            ..empty_route_rule()
+                            ..Default::default()
                         },
                         RouteRule {
                             outbound: Some("direct".into()),
                             ip_cidr: vec!["10.0.0.0/8".into()],
-                            ..empty_route_rule()
+                            ..Default::default()
                         },
                     ],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1154,9 +984,9 @@ mod tests {
                 rules: vec![RouteRule {
                     outbound: Some("direct".into()),
                     rule_set: vec!["geosite-cn".into(), "geoip-cn".into()],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1175,9 +1005,9 @@ mod tests {
                     dns_type: Some("https".into()),
                     server: Some("dns.cloudflare.com".into()),
                     path: Some("/dns-query".into()),
-                    ..empty_dns_server()
+                    ..Default::default()
                 }],
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1198,25 +1028,25 @@ mod tests {
                         tag: Some("real_upstream".into()),
                         dns_type: Some("udp".into()),
                         server: Some("8.8.8.8".into()),
-                        ..empty_dns_server()
+                        ..Default::default()
                     },
                     DnsServer {
                         tag: Some("local_dns".into()),
                         dns_type: Some("local".into()),
-                        ..empty_dns_server()
+                        ..Default::default()
                     },
                     DnsServer {
                         tag: Some("hosts_table".into()),
                         dns_type: Some("hosts".into()),
-                        ..empty_dns_server()
+                        ..Default::default()
                     },
                     DnsServer {
                         tag: Some("fake_dns".into()),
                         dns_type: Some("fakeip".into()),
-                        ..empty_dns_server()
+                        ..Default::default()
                     },
                 ],
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1233,14 +1063,14 @@ mod tests {
                     tag: Some("mydns".into()),
                     dns_type: Some("udp".into()),
                     server: Some("1.1.1.1".into()),
-                    ..empty_dns_server()
+                    ..Default::default()
                 }],
                 rules: vec![DnsRule {
                     server: Some("mydns".into()),
                     domain: vec!["exact.com".into()],
-                    ..empty_dns_rule()
+                    ..Default::default()
                 }],
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1258,15 +1088,15 @@ mod tests {
                     tag: Some("mydns".into()),
                     dns_type: Some("udp".into()),
                     server: Some("1.1.1.1".into()),
-                    ..empty_dns_server()
+                    ..Default::default()
                 }],
                 rules: vec![DnsRule {
                     server: Some("mydns".into()),
                     domain_keyword: vec!["ad".into(), "track".into()],
                     domain_regex: vec!["\\.cn$".into()],
-                    ..empty_dns_rule()
+                    ..Default::default()
                 }],
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1287,27 +1117,27 @@ mod tests {
                         tag: Some("real_upstream".into()),
                         dns_type: Some("udp".into()),
                         server: Some("8.8.8.8".into()),
-                        ..empty_dns_server()
+                        ..Default::default()
                     },
                     DnsServer {
                         tag: Some("local_dns".into()),
                         dns_type: Some("local".into()),
-                        ..empty_dns_server()
+                        ..Default::default()
                     },
                 ],
                 rules: vec![
                     DnsRule {
                         server: Some("real_upstream".into()),
                         domain_suffix: vec!["valid.com".into()],
-                        ..empty_dns_rule()
+                        ..Default::default()
                     },
                     DnsRule {
                         server: Some("local_dns".into()),
                         domain_suffix: vec!["skipped.com".into()],
-                        ..empty_dns_rule()
+                        ..Default::default()
                     },
                 ],
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1325,9 +1155,9 @@ mod tests {
                     outbound: Some("proxy".into()),
                     domain_suffix: vec!["google.com".into()],
                     domain_keyword: vec!["google".into()],
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1343,19 +1173,19 @@ mod tests {
                 rules: vec![
                     RouteRule {
                         action: Some("sniff".into()),
-                        ..empty_route_rule()
+                        ..Default::default()
                     },
                     RouteRule {
                         action: Some("hijack-dns".into()),
-                        ..empty_route_rule()
+                        ..Default::default()
                     },
                     RouteRule {
                         outbound: Some("direct".into()),
                         domain_suffix: vec!["example.com".into()],
-                        ..empty_route_rule()
+                        ..Default::default()
                     },
                 ],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1371,9 +1201,9 @@ mod tests {
                 rules: vec![RouteRule {
                     outbound: Some("direct".into()),
                     clash_mode: Some("Direct".into()),
-                    ..empty_route_rule()
+                    ..Default::default()
                 }],
-                ..empty_route()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1389,9 +1219,9 @@ mod tests {
                     tag: Some("v6dns".into()),
                     dns_type: Some("udp".into()),
                     server: Some("2001:db8::1".into()),
-                    ..empty_dns_server()
+                    ..Default::default()
                 }],
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -1408,9 +1238,9 @@ mod tests {
                     tag: Some("mydns".into()),
                     dns_type: Some("udp".into()),
                     server: Some("8.8.8.8:5353".into()),
-                    ..empty_dns_server()
+                    ..Default::default()
                 }],
-                ..empty_dns()
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
