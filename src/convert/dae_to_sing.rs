@@ -285,14 +285,17 @@ fn apply_filter(expr: &str, tags: &[String]) -> Vec<String> {
 // ---- DNS ----
 
 fn build_dns(dae: &DaeConfig) -> Option<Dns> {
+    let must_direct_rules = build_must_direct_dns_rules(dae);
+
     if dae.dns.upstream.is_empty()
         && dae.dns.request_rules.is_empty()
         && dae.dns.response_rules.is_empty()
+        && must_direct_rules.is_empty()
     {
         return None;
     }
 
-    let servers: Vec<DnsServer> = dae
+    let mut servers: Vec<DnsServer> = dae
         .dns
         .upstream
         .iter()
@@ -301,6 +304,19 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
 
     let mut final_dns = None;
     let mut rules = Vec::new();
+
+    // must_direct DNS rules come first — they take priority over normal DNS routing,
+    // matching the dae semantics where must_direct bypasses DNS hijacking
+    if !must_direct_rules.is_empty() {
+        servers.push(DnsServer {
+            dns_type: Some("local".into()),
+            tag: Some("dns-direct".into()),
+            ..Default::default()
+        });
+        rules.extend(must_direct_rules);
+        // ensure there's always a fallback DNS server
+        final_dns = final_dns.or(Some("dns-direct".to_string()));
+    }
 
     for rule in &dae.dns.request_rules {
         let cond = rule.condition.trim();
@@ -325,6 +341,44 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
         final_dns,
         independent_cache: Some(true),
     })
+}
+
+/// Extract domain-based DNS rules from `must_direct` routing rules.
+/// In dae, `must_direct` means traffic AND DNS both bypass the proxy.
+/// These DNS rules ensure matched domains are resolved directly (via system resolver)
+/// rather than through the proxy's DNS upstream.
+fn build_must_direct_dns_rules(dae: &DaeConfig) -> Vec<DnsRule> {
+    let mut rules = Vec::new();
+
+    for rule in &dae.routing.rules {
+        if rule.target.trim() != "must_direct" {
+            continue;
+        }
+        let condition = rule.condition.trim();
+        let Some(args_str) = extract_paren_args(condition, "domain") else {
+            continue;
+        };
+        let args = parse_comma_args(args_str);
+        if args.is_empty() {
+            continue;
+        }
+        let mut dns_rule = DnsRule {
+            server: Some("dns-direct".into()),
+            ..Default::default()
+        };
+        for arg in &args {
+            if let Some(name) = arg.strip_prefix("geosite:") {
+                dns_rule.rule_set.push(format!("geosite-{name}"));
+            } else {
+                dns_rule.domain_suffix.push(arg.clone());
+            }
+        }
+        if !dns_rule.rule_set.is_empty() || !dns_rule.domain_suffix.is_empty() {
+            rules.push(dns_rule);
+        }
+    }
+
+    rules
 }
 
 fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
@@ -900,5 +954,79 @@ mod tests {
         assert_eq!(srv.tag.as_deref(), Some("v6dns"));
         assert_eq!(srv.dns_type.as_deref(), Some("udp"));
         assert_eq!(srv.server.as_deref(), Some("[2001:db8::1]"));
+    }
+
+    #[test]
+    fn must_direct_generates_direct_dns_rules() {
+        let dae = DaeConfig {
+            routing: RoutingSection {
+                rules: vec![
+                    RoutingRule {
+                        condition: "domain(example.com, geosite:google)".into(),
+                        target: "must_direct".into(),
+                    },
+                    RoutingRule {
+                        condition: "domain(geosite:cn)".into(),
+                        target: "direct".into(),
+                    },
+                    RoutingRule {
+                        condition: "pname(sshd)".into(),
+                        target: "must_direct".into(),
+                    },
+                ],
+                fallback: Some("proxy".into()),
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae).unwrap();
+
+        // must_direct triggers DNS section even without explicit dns config
+        let dns = cfg.dns.as_ref().expect("dns section should exist");
+
+        // dns-direct server should be present
+        let direct_server = dns
+            .servers
+            .iter()
+            .find(|s| s.tag.as_deref() == Some("dns-direct"));
+        assert!(direct_server.is_some(), "dns-direct server should exist");
+        assert_eq!(
+            direct_server.unwrap().dns_type.as_deref(),
+            Some("local")
+        );
+
+        // first DNS rule should be for the must_direct domain rule
+        assert!(!dns.rules.is_empty(), "DNS rules should exist");
+        let must_direct_rule = &dns.rules[0];
+        assert_eq!(
+            must_direct_rule.server.as_deref(),
+            Some("dns-direct"),
+            "must_direct domain rule should point to dns-direct server"
+        );
+        assert!(
+            must_direct_rule.domain_suffix.contains(&"example.com".to_string()),
+            "must_direct rule should contain example.com"
+        );
+        assert!(
+            must_direct_rule.rule_set.contains(&"geosite-google".to_string()),
+            "must_direct rule should contain geosite-google"
+        );
+
+        // pname rule should NOT generate a DNS rule
+        let pname_rules: Vec<&DnsRule> = dns
+            .rules
+            .iter()
+            .filter(|r| r.server.as_deref() == Some("dns-direct"))
+            .collect();
+        // Only one dns-direct rule (from the domain() rule, not the pname() rule)
+        // But actually the second is from domain(geosite:cn) -> direct, not must_direct
+        // So only 1 rule for dns-direct
+        assert_eq!(pname_rules.len(), 1, "only domain() must_direct generates DNS rules");
+
+        // final should fall back to dns-direct when no explicit DNS config
+        assert_eq!(
+            dns.final_dns.as_deref(),
+            Some("dns-direct"),
+            "final DNS should be dns-direct when must_direct rules exist"
+        );
     }
 }

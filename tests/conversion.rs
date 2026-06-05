@@ -114,6 +114,7 @@ fn builtin_keyword_groups_are_ignored() {
     assert_eq!(test_group.unwrap().outbound_type, "urltest");
 
     // total count: 2 nodes + 1 built-in direct + 2 groups = 5
+    // (must_direct outbound is not added because no routing rule targets it)
     assert_eq!(
         sing_config.outbounds.len(),
         5,
