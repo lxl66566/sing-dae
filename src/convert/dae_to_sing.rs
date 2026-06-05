@@ -4,6 +4,8 @@ use std::{
     str::FromStr,
 };
 
+use regex_lite::Regex;
+
 use crate::{
     convert::dns_utils::{clean_quoted, extract_paren_args, parse_comma_args, parse_dns_upstream},
     dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule},
@@ -266,12 +268,8 @@ fn apply_filter(expr: &str, tags: &[String]) -> Vec<String> {
     if let Some(inner) = extract_paren_args(expr, "name") {
         if let Some(regex_content) = inner.trim().strip_prefix("regex:") {
             let pattern = clean_quoted(regex_content.trim());
-            if let Some(prefix) = pattern.strip_prefix('^') {
-                return tags
-                    .iter()
-                    .filter(|t| t.starts_with(prefix))
-                    .cloned()
-                    .collect();
+            if let Ok(re) = Regex::new(&pattern) {
+                return tags.iter().filter(|t| re.is_match(t)).cloned().collect();
             }
             return tags.to_vec();
         }
@@ -1026,6 +1024,90 @@ mod tests {
         assert_eq!(srv.tag.as_deref(), Some("v6dns"));
         assert_eq!(srv.dns_type.as_deref(), Some("udp"));
         assert_eq!(srv.server.as_deref(), Some("[2001:db8::1]"));
+    }
+
+    #[test]
+    fn group_urltest_with_regex_alternation() {
+        let dae = DaeConfig {
+            nodes: vec![
+                Entry::Tagged {
+                    key: "node-jp".into(),
+                    value: "hy2://p@h:1".into(),
+                },
+                Entry::Tagged {
+                    key: "node-sg".into(),
+                    value: "hy2://p@h:2".into(),
+                },
+                Entry::Tagged {
+                    key: "node-us".into(),
+                    value: "hy2://p@h:3".into(),
+                },
+                Entry::Tagged {
+                    key: "node-de".into(),
+                    value: "hy2://p@h:4".into(),
+                },
+            ],
+            groups: vec![GroupDef {
+                name: "proxy".into(),
+                filters: vec![FilterDef {
+                    expression: "name(regex: 'node-jp|node-sg|node-us')".into(),
+                    latency_offset: None,
+                }],
+                policy: PolicyDef::MinMovingAvg,
+                extra: vec![],
+            }],
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae).unwrap();
+        let proxy_group = cfg
+            .outbounds
+            .iter()
+            .find(|ob| ob.tag.as_deref() == Some("proxy"))
+            .unwrap();
+        assert_eq!(proxy_group.outbound_type, "urltest");
+        let mut outbounds = proxy_group.outbounds.clone().unwrap();
+        outbounds.sort();
+        assert_eq!(outbounds, vec!["node-jp", "node-sg", "node-us"]);
+    }
+
+    #[test]
+    fn group_urltest_with_regex_alternation_and_suffix() {
+        let dae = DaeConfig {
+            nodes: vec![
+                Entry::Tagged {
+                    key: "hk-01".into(),
+                    value: "hy2://p@h:1".into(),
+                },
+                Entry::Tagged {
+                    key: "jp-01".into(),
+                    value: "hy2://p@h:2".into(),
+                },
+                Entry::Tagged {
+                    key: "jp-02".into(),
+                    value: "hy2://p@h:3".into(),
+                },
+            ],
+            groups: vec![GroupDef {
+                name: "jp_nodes".into(),
+                filters: vec![FilterDef {
+                    expression: "name(regex: '^jp-0[12]$')".into(),
+                    latency_offset: None,
+                }],
+                policy: PolicyDef::Random,
+                extra: vec![],
+            }],
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae).unwrap();
+        let g = cfg
+            .outbounds
+            .iter()
+            .find(|ob| ob.tag.as_deref() == Some("jp_nodes"))
+            .unwrap();
+        assert_eq!(g.outbound_type, "selector");
+        let mut outbounds = g.outbounds.clone().unwrap();
+        outbounds.sort();
+        assert_eq!(outbounds, vec!["jp-01", "jp-02"]);
     }
 
     #[test]

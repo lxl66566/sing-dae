@@ -17,20 +17,39 @@ const EXAMPLE_DAE = `global {
     allow_insecure: false
     tcp_check_url: 'http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111'
     udp_check_dns: 'dns.google.com:53,8.8.8.8,2001:4860:4860::8888'
-    check_interval: 20s
+    check_interval: 30s
     check_tolerance: 50ms
 }
 node {
-    my-node: 'hy2://change-me@server.example.com:65533/?sni=server.example.com#example'
+    node-jp: 'hy2://change-me@jp.example.com:65533/?sni=jp.example.com#jp'
+    node-us: 'trojan://change-me@us.example.com:443/?security=tls&sni=us.example.com#us'
+    node-sg: 'vless://uuid@sg.example.com:443/?type=tcp&security=tls&sni=sg.example.com#sg'
 }
 group {
-    proxy { policy: min_moving_avg }
-    direct { policy: min_moving_avg }
+    proxy {
+        filter: name(regex: 'node-jp|node-us')
+        policy: min_moving_avg
+    }
+}
+dns {
+    upstream {
+        alidns: 'udp://223.5.5.5:53'
+        googledns: 'tcp+udp://dns.google.com:53'
+    }
+    routing {
+        request {
+            qname(geosite:cn) -> alidns
+            qname(geosite:category-ads) -> reject
+            fallback -> googledns
+        }
+    }
 }
 routing {
     dip(geoip:private) -> direct
     domain(geosite:cn) -> direct
     domain(geosite:google) -> proxy
+    domain(geosite:category-ads) -> block
+    pname(YourApp) -> must_direct
     fallback: proxy
 }`;
 
@@ -40,27 +59,89 @@ const EXAMPLE_SING = JSON.stringify(
     inbounds: [
       {
         type: "mixed",
-        tag: "socks",
+        tag: "mixed",
         listen: "127.0.0.1",
         listen_port: 1080,
       },
     ],
     outbounds: [
-      { type: "direct", tag: "direct" },
       {
-        type: "shadowsocks",
-        tag: "proxy",
-        server: "server.example.com",
-        server_port: 443,
-        method: "aes-128-gcm",
+        type: "hysteria2",
+        tag: "node-jp",
+        server: "jp.example.com",
+        server_port: 65533,
         password: "change-me",
+        tls: {
+          enabled: true,
+          server_name: "jp.example.com",
+        },
+      },
+      {
+        type: "trojan",
+        tag: "node-us",
+        server: "us.example.com",
+        server_port: 443,
+        password: "change-me",
+        tls: {
+          enabled: true,
+          server_name: "us.example.com",
+        },
+      },
+      {
+        type: "vless",
+        tag: "node-sg",
+        server: "sg.example.com",
+        server_port: 443,
+        uuid: "uuid",
+        tls: {
+          enabled: true,
+          server_name: "sg.example.com",
+        },
+      },
+      {
+        type: "direct",
+        tag: "direct",
+      },
+      {
+        type: "urltest",
+        tag: "proxy",
+        outbounds: ["node-jp", "node-us"],
       },
     ],
+    dns: {
+      servers: [
+        {
+          tag: "alidns",
+          type: "udp",
+          server: "223.5.5.5",
+          server_port: 53,
+        },
+        {
+          tag: "googledns",
+          type: "udp",
+          server: "dns.google.com",
+          server_port: 53,
+        },
+      ],
+      rules: [
+        {
+          server: "alidns",
+          rule_set: ["geosite-cn"],
+        },
+        {
+          action: "predefined",
+          rule_set: ["geosite-category-ads"],
+        },
+      ],
+      final: "googledns",
+    },
     route: {
       rules: [
         { outbound: "direct", ip_is_private: true },
         { outbound: "direct", rule_set: ["geosite-cn"] },
         { outbound: "proxy", rule_set: ["geosite-google"] },
+        { action: "reject", rule_set: ["geosite-category-ads"] },
+        { outbound: "direct", process_name: ["YourApp"] },
       ],
       final: "proxy",
     },
