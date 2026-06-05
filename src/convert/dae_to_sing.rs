@@ -10,6 +10,10 @@ use crate::{
     },
 };
 
+/// Built-in outbound names in dae that must not be overridden by group
+/// definitions.
+const BUILTIN_OUTBOUNDS: [&str; 3] = ["direct", "must_direct", "block"];
+
 #[allow(clippy::missing_errors_doc)]
 pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
     let log = build_log(dae);
@@ -202,6 +206,7 @@ fn parse_query_params(query: &str) -> HashMap<String, String> {
 fn build_group_outbounds(dae: &DaeConfig, all_node_tags: &[String]) -> Result<Vec<Outbound>> {
     dae.groups
         .iter()
+        .filter(|g| !BUILTIN_OUTBOUNDS.contains(&g.name.as_str()))
         .map(|group| {
             let matched = filter_nodes(&group.filters, all_node_tags);
             let outbound_type = match &group.policy {

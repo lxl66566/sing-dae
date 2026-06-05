@@ -1,4 +1,4 @@
-use std::fs;
+use std::{collections::HashSet, fs};
 
 use sing_dae::{
     convert::{dae_to_sing, sing_to_dae},
@@ -66,15 +66,59 @@ fn dae_roundtrip_via_sing() {
 }
 
 #[test]
-fn dae_full_to_sing() {
-    let input = fs::read_to_string("assets/full.dae").expect("read");
+fn builtin_keyword_groups_are_ignored() {
+    let input = fs::read_to_string("assets/direct_group_conflict.dae").expect("read fixture");
     let dae_config = parser::parse(&input).expect("parse dae");
 
     let sing_config = dae_to_sing::convert(&dae_config).expect("convert to sing");
 
-    assert!(sing_config.log.is_some());
-    assert!(!sing_config.outbounds.is_empty());
-    assert!(sing_config.route.is_some());
+    // no duplicate tags
+    let mut seen_tags = HashSet::new();
+    for ob in &sing_config.outbounds {
+        if let Some(tag) = &ob.tag {
+            assert!(
+                seen_tags.insert(tag.clone()),
+                "duplicate outbound tag found: {tag}"
+            );
+        }
+    }
+
+    // built-in direct outbound with tag "direct" must still exist
+    let has_builtin_direct = sing_config
+        .outbounds
+        .iter()
+        .any(|ob| ob.tag.as_deref() == Some("direct") && ob.outbound_type == "direct");
+    assert!(has_builtin_direct, "built-in direct outbound should exist");
+
+    // group named "direct" must NOT generate any outbound (it is a built-in
+    // keyword)
+    let has_direct_group = sing_config
+        .outbounds
+        .iter()
+        .any(|ob| ob.tag.as_deref() == Some("direct") && ob.outbound_type != "direct");
+    assert!(!has_direct_group, "group 'direct' should be ignored");
+
+    // normal groups (proxy, test) should still be generated
+    let proxy_group = sing_config
+        .outbounds
+        .iter()
+        .find(|ob| ob.tag.as_deref() == Some("proxy"));
+    assert!(proxy_group.is_some(), "group 'proxy' should exist");
+    assert_eq!(proxy_group.unwrap().outbound_type, "urltest");
+
+    let test_group = sing_config
+        .outbounds
+        .iter()
+        .find(|ob| ob.tag.as_deref() == Some("test"));
+    assert!(test_group.is_some(), "group 'test' should exist");
+    assert_eq!(test_group.unwrap().outbound_type, "urltest");
+
+    // total count: 2 nodes + 1 built-in direct + 2 groups = 5
+    assert_eq!(
+        sing_config.outbounds.len(),
+        5,
+        "expected 2 nodes + 1 built-in direct + 2 groups = 5 outbounds"
+    );
 }
 
 #[test]
