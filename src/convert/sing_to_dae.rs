@@ -217,10 +217,7 @@ fn build_dns(sing: &SingBoxConfig) -> DnsSection {
         if let Some(final_dns) = &sing_dns.final_dns
             && valid_upstreams.contains(final_dns.as_str())
         {
-            dns.request_rules.push(RoutingRule {
-                condition: "fallback".to_string(),
-                target: final_dns.clone(),
-            });
+            dns.fallback = Some(final_dns.clone());
         }
     }
 
@@ -670,9 +667,7 @@ mod tests {
         assert_eq!(dae.dns.upstream[0].value, "udp://223.5.5.5:53");
         assert_eq!(dae.dns.upstream[1].value, "tcp+udp://dns.google.com:53");
 
-        let fallback = dae.dns.request_rules.last().unwrap();
-        assert_eq!(fallback.condition, "fallback");
-        assert_eq!(fallback.target, "remote");
+        assert_eq!(dae.dns.fallback.as_deref(), Some("remote"));
     }
 
     #[test]

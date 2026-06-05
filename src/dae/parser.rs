@@ -131,7 +131,9 @@ fn parse_dns_section(pair: pest::iterators::Pair<Rule>) -> ast::DnsSection {
                     };
                     match rc.as_rule() {
                         Rule::request_block => {
-                            section.request_rules = parse_dns_routing_rules(rc);
+                            let (rules, fallback) = parse_dns_routing_block(rc);
+                            section.request_rules = rules;
+                            section.fallback = fallback;
                         }
                         Rule::response_block => {
                             section.response_rules = parse_dns_routing_rules(rc);
@@ -152,6 +154,25 @@ fn parse_dns_routing_rules(pair: pest::iterators::Pair<Rule>) -> Vec<ast::Routin
         .filter(|p| p.as_rule() == Rule::dns_routing_rule)
         .map(|p| parse_routing_rule(p))
         .collect()
+}
+
+fn parse_dns_routing_block(
+    pair: pest::iterators::Pair<Rule>,
+) -> (Vec<ast::RoutingRule>, Option<String>) {
+    let mut rules = Vec::new();
+    let mut fallback = None;
+    for p in pair.into_inner() {
+        match p.as_rule() {
+            Rule::dns_routing_rule => {
+                rules.push(parse_routing_rule(p));
+            }
+            Rule::dns_fallback_line => {
+                fallback = p.into_inner().next().map(|t| t.as_str().trim().to_owned());
+            }
+            _ => {}
+        }
+    }
+    (rules, fallback)
 }
 
 fn parse_routing_rule(pair: pest::iterators::Pair<Rule>) -> ast::RoutingRule {

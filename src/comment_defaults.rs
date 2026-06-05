@@ -142,6 +142,9 @@ fn merge_entries(base: &mut Vec<Entry>, overrides: &[Entry]) {
 fn merge_dns_section(base: &mut DnsSection, overrides: &DnsSection) {
     merge_key_values(&mut base.entries, &overrides.entries);
     merge_key_values(&mut base.upstream, &overrides.upstream);
+    if overrides.fallback.is_some() {
+        base.fallback.clone_from(&overrides.fallback);
+    }
     if !overrides.request_rules.is_empty() {
         let mut rules = overrides.request_rules.clone();
         rules.append(&mut base.request_rules);

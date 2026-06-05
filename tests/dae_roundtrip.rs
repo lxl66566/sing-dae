@@ -61,6 +61,7 @@ fn roundtrip_fixture() {
         config.dns.request_rules.len(),
         reparsed.dns.request_rules.len()
     );
+    assert_eq!(config.dns.fallback, reparsed.dns.fallback);
 
     for (a, b) in config.groups.iter().zip(reparsed.groups.iter()) {
         assert_eq!(a.name, b.name);

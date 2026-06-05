@@ -348,7 +348,7 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
         }
     }
 
-    let mut final_dns = None;
+    let mut final_dns = dae.dns.fallback.clone();
     let mut rules = Vec::new();
 
     // must_direct DNS rules come first — they take priority over normal DNS
@@ -368,7 +368,8 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
     for rule in &dae.dns.request_rules {
         let cond = rule.condition.trim();
         if cond.eq_ignore_ascii_case("fallback") {
-            final_dns = Some(rule.target.clone());
+            // backward compatibility: old format used "fallback -> target"
+            final_dns = final_dns.or(Some(rule.target.clone()));
             continue;
         }
         rules.push(convert_dns_rule(rule));
@@ -1032,11 +1033,8 @@ mod tests {
                         condition: "qname(geosite:category-ads)".into(),
                         target: "reject".into(),
                     },
-                    RoutingRule {
-                        condition: "fallback".into(),
-                        target: "googledns".into(),
-                    },
                 ],
+                fallback: Some("googledns".to_string()),
                 ..DnsSection::default()
             },
             ..DaeConfig::default()
