@@ -24,15 +24,18 @@ const BUILTIN_OUTBOUNDS: [&str; 3] = ["direct", "must_direct", "block"];
 pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
     let log = build_log(dae);
 
-    let node_tags: Vec<String> = dae
-        .nodes
-        .iter()
-        .filter_map(|n| match n {
-            Entry::Tagged { key, .. } => Some(key.clone()),
-            Entry::Untagged(_) => None,
-        })
-        .collect();
     let node_outbounds = build_node_outbounds(dae)?;
+    let node_tags: Vec<String> = node_outbounds
+        .iter()
+        .filter_map(|ob| ob.tag.as_deref())
+        .filter(|tag| {
+            // Only include tags from originally tagged (not auto-tagged untagged) nodes
+            dae.nodes
+                .iter()
+                .any(|n| matches!(n, Entry::Tagged { key, .. } if key == tag))
+        })
+        .map(str::to_string)
+        .collect();
     let group_outbounds = build_group_outbounds(dae, &node_tags)?;
 
     let mut outbounds = Vec::new();
@@ -44,9 +47,10 @@ pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
     });
     outbounds.extend(group_outbounds);
 
-    let dns = build_dns(dae);
+    let mut dns = build_dns(dae);
     let rule_set_tags = collect_rule_set_tags(dae);
-    let route = build_route(dae, &rule_set_tags);
+    let domain_resolver_tag = resolve_domain_resolver(&mut dns, &outbounds);
+    let route = build_route(dae, &rule_set_tags, domain_resolver_tag);
 
     let inbounds = build_default_inbounds();
     let experimental = build_default_experimental();
@@ -191,6 +195,7 @@ fn parse_node_link(tag: &str, link: &str) -> Result<Outbound> {
         uuid,
         security: None,
         outbounds: None,
+        domain_resolver: None,
     })
 }
 
@@ -213,13 +218,20 @@ fn build_group_outbounds(dae: &DaeConfig, all_node_tags: &[String]) -> Result<Ve
     dae.groups
         .iter()
         .filter(|g| !BUILTIN_OUTBOUNDS.contains(&g.name.as_str()))
-        .map(|group| {
+        .filter_map(|group| {
             let matched = filter_nodes(&group.filters, all_node_tags);
+            if matched.is_empty() {
+                eprintln!(
+                    "warning: group '{}' has no matching nodes, skipping",
+                    group.name
+                );
+                return None;
+            }
             let outbound_type = match &group.policy {
                 PolicyDef::Random | PolicyDef::Fixed(_) => "selector",
                 PolicyDef::Min | PolicyDef::MinMovingAvg | PolicyDef::MinAvg10 => "urltest",
             };
-            Ok(Outbound {
+            Some(Ok(Outbound {
                 outbound_type: outbound_type.to_string(),
                 tag: Some(group.name.clone()),
                 server: None,
@@ -233,7 +245,8 @@ fn build_group_outbounds(dae: &DaeConfig, all_node_tags: &[String]) -> Result<Ve
                 uuid: None,
                 security: None,
                 outbounds: Some(matched),
-            })
+                domain_resolver: None,
+            }))
         })
         .collect()
 }
@@ -494,12 +507,68 @@ fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
     }
 }
 
+/// Find or create a "local" type DNS server to use as
+/// `route.default_domain_resolver`. This is needed when any outbound connects
+/// via a domain address, so sing-box can resolve it before establishing the
+/// proxy connection.
+fn resolve_domain_resolver(dns: &mut Option<Dns>, outbounds: &[Outbound]) -> Option<String> {
+    let needs_resolver = outbounds.iter().any(|ob| {
+        ob.server
+            .as_deref()
+            .is_some_and(|s| is_domain_address(Some(s)))
+    });
+
+    if !needs_resolver {
+        return None;
+    }
+
+    // Reuse an existing "local" type DNS server if available
+    if let Some(dns_config) = dns.as_ref()
+        && let Some(tag) = dns_config
+            .servers
+            .iter()
+            .find(|s| s.dns_type.as_deref() == Some("local"))
+            .and_then(|s| s.tag.clone())
+    {
+        return Some(tag);
+    }
+
+    // No local DNS server exists — create one
+    let tag = "dns-local".to_string();
+    let local_server = DnsServer {
+        dns_type: Some("local".into()),
+        tag: Some(tag.clone()),
+        ..Default::default()
+    };
+
+    match dns {
+        Some(dns_config) => dns_config.servers.push(local_server),
+        None => {
+            *dns = Some(Dns {
+                servers: vec![local_server],
+                rules: vec![],
+                final_dns: None,
+            });
+        }
+    }
+
+    Some(tag)
+}
+
 // ---- Route ----
 
-fn build_route(dae: &DaeConfig, rule_set_tags: &HashSet<String>) -> Option<Route> {
+fn build_route(
+    dae: &DaeConfig,
+    rule_set_tags: &HashSet<String>,
+    domain_resolver_tag: Option<String>,
+) -> Option<Route> {
     let rule_set = build_rule_set(rule_set_tags);
 
-    if dae.routing.rules.is_empty() && dae.routing.fallback.is_none() && rule_set.is_empty() {
+    if dae.routing.rules.is_empty()
+        && dae.routing.fallback.is_none()
+        && rule_set.is_empty()
+        && domain_resolver_tag.is_none()
+    {
         return None;
     }
 
@@ -509,7 +578,7 @@ fn build_route(dae: &DaeConfig, rule_set_tags: &HashSet<String>) -> Option<Route
         rules,
         rule_set,
         final_outbound: dae.routing.fallback.clone(),
-        default_domain_resolver: None,
+        default_domain_resolver: domain_resolver_tag.map(serde_json::Value::String),
     })
 }
 
@@ -1187,5 +1256,37 @@ mod tests {
             Some("dns-direct"),
             "final DNS should be dns-direct when must_direct rules exist"
         );
+    }
+
+    #[test]
+    fn domain_resolver_set_when_outbound_uses_domain() {
+        let dae = DaeConfig {
+            nodes: vec![Entry::Tagged {
+                key: "my-proxy".into(),
+                value: "ss://YWVzLTEyOC1nY206cGFzc3dk@proxy.example.com:8443".into(),
+            }],
+            routing: RoutingSection {
+                rules: vec![RoutingRule {
+                    condition: "domain(example.com)".into(),
+                    target: "my-proxy".into(),
+                }],
+                fallback: Some("direct".into()),
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae).unwrap();
+        let route = cfg.route.as_ref().expect("route should exist");
+        let resolver = route
+            .default_domain_resolver
+            .as_ref()
+            .expect("default_domain_resolver should be set");
+        assert_eq!(resolver, "dns-local");
+        let dns = cfg.dns.as_ref().expect("dns section should exist");
+        let local = dns
+            .servers
+            .iter()
+            .find(|s| s.tag.as_deref() == Some("dns-local"));
+        assert!(local.is_some(), "dns-local server should exist");
+        assert_eq!(local.unwrap().dns_type.as_deref(), Some("local"));
     }
 }
