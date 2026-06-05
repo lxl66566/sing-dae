@@ -47,11 +47,11 @@ fn build_global(sing: &SingBoxConfig) -> Vec<KeyValue> {
         ("allow_insecure", "false"),
         (
             "tcp_check_url",
-            "'http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111'",
+            "http://cp.cloudflare.com,1.1.1.1,2606:4700:4700::1111",
         ),
         (
             "udp_check_dns",
-            "'dns.google.com:53,8.8.8.8,2001:4860:4860::8888'",
+            "dns.google.com:53,8.8.8.8,2001:4860:4860::8888",
         ),
         ("check_interval", "30s"),
     ];
