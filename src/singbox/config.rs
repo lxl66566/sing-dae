@@ -40,8 +40,6 @@ pub struct Dns {
     pub rules: Vec<DnsRule>,
     #[serde(rename = "final", default, skip_serializing_if = "Option::is_none")]
     pub final_dns: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub independent_cache: Option<bool>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -141,8 +139,8 @@ pub struct Outbound {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security: Option<String>,
 
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub outbounds: Vec<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outbounds: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

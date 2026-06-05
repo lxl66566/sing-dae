@@ -164,11 +164,12 @@ fn build_groups(sing: &SingBoxConfig) -> Vec<GroupDef> {
                 PolicyDef::Random
             };
 
-            let filters = if ob.outbounds.is_empty() {
+            let group_outbounds = ob.outbounds.as_deref().unwrap_or(&[]);
+            let filters = if group_outbounds.is_empty() {
                 vec![]
             } else {
                 vec![FilterDef {
-                    expression: format!("name({})", ob.outbounds.join(", ")),
+                    expression: format!("name({})", group_outbounds.join(", ")),
                     latency_offset: None,
                 }]
             };
@@ -610,7 +611,7 @@ mod tests {
                 Outbound {
                     outbound_type: "selector".into(),
                     tag: Some("my-group".into()),
-                    outbounds: vec!["my-hy2".into()],
+                    outbounds: Some(vec!["my-hy2".into()]),
                     ..Default::default()
                 },
             ],
@@ -630,7 +631,7 @@ mod tests {
             outbounds: vec![Outbound {
                 outbound_type: "urltest".into(),
                 tag: Some("auto-group".into()),
-                outbounds: vec!["a".into(), "b".into()],
+                outbounds: Some(vec!["a".into(), "b".into()]),
                 ..Default::default()
             }],
             ..SingBoxConfig::default()

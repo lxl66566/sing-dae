@@ -44,6 +44,14 @@ pub fn has_explicit_port(host: &str) -> bool {
     host[i + 1..].parse::<u16>().is_ok()
 }
 
+/// Map dae upstream URL schemes to sing-box DNS server types.
+fn normalize_dns_type(scheme: &str) -> &str {
+    match scheme {
+        "tcp+udp" => "udp",
+        other => other,
+    }
+}
+
 pub fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
     let Some((scheme, rest)) = url.split_once("://") else {
         return DnsServer {
@@ -54,7 +62,9 @@ pub fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
         };
     };
 
-    let (host_part, path) = match (scheme, rest.find('/')) {
+    let dns_type = normalize_dns_type(scheme);
+
+    let (host_part, path) = match (dns_type, rest.find('/')) {
         (s, Some(pos)) if DNS_TYPES_WITH_PATH.contains(&s) => {
             let (h, p) = rest.split_at(pos);
             (h, Some(p.to_string()))
@@ -67,7 +77,7 @@ pub fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
     DnsServer {
         server: Some(server.to_string()),
         tag: Some(tag.to_string()),
-        dns_type: Some(scheme.to_string()),
+        dns_type: Some(dns_type.to_string()),
         path,
         ..DnsServer::default()
     }

@@ -1,4 +1,8 @@
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    net::IpAddr,
+    str::FromStr,
+};
 
 use crate::{
     convert::dns_utils::{clean_quoted, extract_paren_args, parse_comma_args, parse_dns_upstream},
@@ -184,7 +188,7 @@ fn parse_node_link(tag: &str, link: &str) -> Result<Outbound> {
         method: None,
         uuid,
         security: None,
-        outbounds: vec![],
+        outbounds: None,
     })
 }
 
@@ -226,7 +230,7 @@ fn build_group_outbounds(dae: &DaeConfig, all_node_tags: &[String]) -> Result<Ve
                 method: None,
                 uuid: None,
                 security: None,
-                outbounds: matched,
+                outbounds: Some(matched),
             })
         })
         .collect()
@@ -302,11 +306,43 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
         .map(|up| parse_dns_upstream(&up.key, &up.value))
         .collect();
 
+    // For DNS servers whose address is a domain (not IP), set domain_resolver
+    // pointing to the local system resolver to avoid circular resolution.
+    if servers
+        .iter()
+        .any(|s| is_domain_address(s.server.as_deref()))
+    {
+        let resolver_tag = match servers.iter().find_map(|s| {
+            if s.dns_type.as_deref() == Some("local") {
+                s.tag.clone()
+            } else {
+                None
+            }
+        }) {
+            Some(tag) => tag,
+            None => {
+                let tag = "dns-local".to_string();
+                servers.push(DnsServer {
+                    dns_type: Some("local".into()),
+                    tag: Some(tag.clone()),
+                    ..Default::default()
+                });
+                tag
+            }
+        };
+        for server in &mut servers {
+            if is_domain_address(server.server.as_deref()) && server.domain_resolver.is_none() {
+                server.domain_resolver = Some(resolver_tag.clone());
+            }
+        }
+    }
+
     let mut final_dns = None;
     let mut rules = Vec::new();
 
-    // must_direct DNS rules come first — they take priority over normal DNS routing,
-    // matching the dae semantics where must_direct bypasses DNS hijacking
+    // must_direct DNS rules come first — they take priority over normal DNS
+    // routing, matching the dae semantics where must_direct bypasses DNS
+    // hijacking
     if !must_direct_rules.is_empty() {
         servers.push(DnsServer {
             dns_type: Some("local".into()),
@@ -339,14 +375,13 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
         servers,
         rules,
         final_dns,
-        independent_cache: Some(true),
     })
 }
 
 /// Extract domain-based DNS rules from `must_direct` routing rules.
 /// In dae, `must_direct` means traffic AND DNS both bypass the proxy.
-/// These DNS rules ensure matched domains are resolved directly (via system resolver)
-/// rather than through the proxy's DNS upstream.
+/// These DNS rules ensure matched domains are resolved directly (via system
+/// resolver) rather than through the proxy's DNS upstream.
 fn build_must_direct_dns_rules(dae: &DaeConfig) -> Vec<DnsRule> {
     let mut rules = Vec::new();
 
@@ -379,6 +414,21 @@ fn build_must_direct_dns_rules(dae: &DaeConfig) -> Vec<DnsRule> {
     }
 
     rules
+}
+
+fn is_ip_address(addr: Option<&str>) -> bool {
+    match addr {
+        Some(a) => {
+            let trimmed = a.trim_start_matches('[').trim_end_matches(']');
+            IpAddr::from_str(trimmed).is_ok()
+        }
+        None => false,
+    }
+}
+
+fn is_domain_address(addr: Option<&str>) -> bool {
+    addr.is_some_and(|a| !a.trim_start_matches('[').trim_end_matches(']').is_empty())
+        && !is_ip_address(addr)
 }
 
 fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
@@ -727,7 +777,7 @@ mod tests {
             .find(|ob| ob.tag.as_deref() == Some("jp"))
             .unwrap();
         assert_eq!(jp_group.outbound_type, "urltest");
-        assert_eq!(jp_group.outbounds, vec!["jp-1"]);
+        assert_eq!(jp_group.outbounds, Some(vec!["jp-1".to_string()]));
     }
 
     #[test]
@@ -761,7 +811,7 @@ mod tests {
             .find(|ob| ob.tag.as_deref() == Some("no_jp"))
             .unwrap();
         assert_eq!(g.outbound_type, "selector");
-        assert_eq!(g.outbounds, vec!["us-1"]);
+        assert_eq!(g.outbounds, Some(vec!["us-1".to_string()]));
     }
 
     #[test]
@@ -853,11 +903,18 @@ mod tests {
         };
         let cfg = convert(&dae).unwrap();
         let dns = cfg.dns.unwrap();
-        assert_eq!(dns.servers.len(), 1);
+        assert_eq!(dns.servers.len(), 2);
         assert_eq!(dns.servers[0].tag.as_deref(), Some("mydoh"));
         assert_eq!(dns.servers[0].dns_type.as_deref(), Some("https"));
         assert_eq!(dns.servers[0].server.as_deref(), Some("dns.cloudflare.com"));
         assert_eq!(dns.servers[0].path.as_deref(), Some("/dns-query"));
+        assert_eq!(
+            dns.servers[0].domain_resolver.as_deref(),
+            Some("dns-local"),
+            "domain-based DNS server needs domain_resolver"
+        );
+        assert_eq!(dns.servers[1].dns_type.as_deref(), Some("local"));
+        assert_eq!(dns.servers[1].tag.as_deref(), Some("dns-local"));
     }
 
     #[test]
@@ -920,12 +977,27 @@ mod tests {
         let cfg = convert(&dae).unwrap();
         let dns = cfg.dns.unwrap();
 
-        assert_eq!(dns.servers.len(), 2);
+        // dns-local is added as domain_resolver for domain-based servers
+        assert_eq!(dns.servers.len(), 3);
         assert_eq!(dns.servers[0].tag.as_deref(), Some("alidns"));
         assert_eq!(dns.servers[0].dns_type.as_deref(), Some("udp"));
         assert_eq!(dns.servers[0].server.as_deref(), Some("223.5.5.5"));
-        assert_eq!(dns.servers[1].dns_type.as_deref(), Some("tcp+udp"));
+
+        assert_eq!(dns.servers[1].tag.as_deref(), Some("googledns"));
+        assert_eq!(dns.servers[1].dns_type.as_deref(), Some("udp"));
         assert_eq!(dns.servers[1].server.as_deref(), Some("dns.google.com"));
+        assert_eq!(
+            dns.servers[1].domain_resolver.as_deref(),
+            Some("dns-local"),
+            "domain-based DNS server uses local resolver"
+        );
+
+        let dns_local = dns
+            .servers
+            .iter()
+            .find(|s| s.tag.as_deref() == Some("dns-local"))
+            .expect("dns-local server should exist");
+        assert_eq!(dns_local.dns_type.as_deref(), Some("local"));
 
         assert_eq!(dns.rules.len(), 2);
         assert_eq!(dns.rules[0].server.as_deref(), Some("alidns"));
@@ -989,10 +1061,7 @@ mod tests {
             .iter()
             .find(|s| s.tag.as_deref() == Some("dns-direct"));
         assert!(direct_server.is_some(), "dns-direct server should exist");
-        assert_eq!(
-            direct_server.unwrap().dns_type.as_deref(),
-            Some("local")
-        );
+        assert_eq!(direct_server.unwrap().dns_type.as_deref(), Some("local"));
 
         // first DNS rule should be for the must_direct domain rule
         assert!(!dns.rules.is_empty(), "DNS rules should exist");
@@ -1003,11 +1072,15 @@ mod tests {
             "must_direct domain rule should point to dns-direct server"
         );
         assert!(
-            must_direct_rule.domain_suffix.contains(&"example.com".to_string()),
+            must_direct_rule
+                .domain_suffix
+                .contains(&"example.com".to_string()),
             "must_direct rule should contain example.com"
         );
         assert!(
-            must_direct_rule.rule_set.contains(&"geosite-google".to_string()),
+            must_direct_rule
+                .rule_set
+                .contains(&"geosite-google".to_string()),
             "must_direct rule should contain geosite-google"
         );
 
@@ -1020,7 +1093,11 @@ mod tests {
         // Only one dns-direct rule (from the domain() rule, not the pname() rule)
         // But actually the second is from domain(geosite:cn) -> direct, not must_direct
         // So only 1 rule for dns-direct
-        assert_eq!(pname_rules.len(), 1, "only domain() must_direct generates DNS rules");
+        assert_eq!(
+            pname_rules.len(),
+            1,
+            "only domain() must_direct generates DNS rules"
+        );
 
         // final should fall back to dns-direct when no explicit DNS config
         assert_eq!(
