@@ -1,31 +1,41 @@
 # sing-dae
 
-sing-box (JSON/JSONC) 与 dae (DSL) 配置格式的双向转换工具。
+<details>
+<summary>前言</summary>
 
-在线使用: https://lxl66566.github.io/sing-dae/
+我在 Linux 上使用 dae，在 windows 上使用 sing-box。我不想维护两份配置。
+
+sing-box 的各种前端都很难用，配置又是 DNS 和 routing 解耦，导致分流写两遍。显然这种配置应该让前端来完成，而不是我手写。而 dae 比较适合手写。
+
+</details>
+
+dae (DSL) 与 sing-box (JSONC) 配置格式的双向转换工具。基于 Rust pest 语法解析、编译为 WASM。
+
+在线转换: https://lxl66566.github.io/sing-dae/
 
 ## 功能
 
 - dae -> sing-box: 解析 dae DSL，转换为 sing-box JSON 配置
-- sing-box -> dae: 解析 sing-box JSON/JSONC，转换为 dae DSL
+  - 支持解析 regex 规则组、must_direct 出站等
+- sing-box -> dae: 解析 sing-box JSONC，转换为 dae DSL
 - 支持节点链接（hy2、trojan、vmess、vless、shadowsocks）、DNS、路由规则、策略组转换
 - 编译为 WASM，web 端运行，不进行任何配置上传
-- 支持解析 JSONC 格式的 sing-box 配置（含注释和尾逗号）
+- 支持使用注释，覆盖产物的字段
 
-## 自动补充的默认配置
+## 额外生成配置
 
-转换后的配置可直接使用，以下默认值会自动添加：
+项目希望转换后的配置可以直接使用，以下额外值会自动添加：
 
-### dae -> sing-box 自动补充
+### dae -> sing-box
 
 <!-- prettier-ignore -->
-| 配置项 | 默认值 | 说明 |
+| 配置项 | 添加 | 说明 |
 | ------ | ------ | ---- |
 | inbounds | `mixed` 入站，监听 `127.0.0.1:1080` | sing-box 必需的入站配置 |
 | experimental.cache_file | `enabled: true, store_fakeip: true` | DNS 缓存，推荐启用 |
-| route.rule_set | 根据规则中引用的 geosite/geoip 自动生成 | 使用 SagerNet 远程规则集 |
+| route.rule_set | 根据规则中引用的 geosite/geoip 自动生成 | 使用 [SagerNet 规则集](https://github.com/SagerNet/sing-geosite/tree/rule-set) |
 
-### sing-box -> dae 自动补充
+### sing-box -> dae
 
 <!-- prettier-ignore -->
 | 配置项 | 默认值 | 说明 |
@@ -37,6 +47,62 @@ sing-box (JSON/JSONC) 与 dae (DSL) 配置格式的双向转换工具。
 | global.tcp_check_url | Cloudflare 检查地址 | 节点连通性检查 |
 | global.udp_check_dns | Google DNS 检查地址 | UDP 连通性检查 |
 | global.check_interval | `30s` | 检查间隔 |
+
+## 注释覆盖
+
+你可以在源文件的**第一个注释块**中写入目标格式的配置（在 dae 配置中写 json，在 sing-box 配置中写 dae）。注释中的配置字段会与转换后产物的配置进行合并与覆盖。
+
+如果想关闭注释覆盖功能，可以关闭这个 feature 并重新编译。
+
+### dae 配置覆盖 sing-box
+
+在 dae 文件开头用 `#` 注释写入 sing-box 格式的 JSON：
+
+```dae
+#{
+#  "inbounds": [
+#    {
+#      "type": "mixed",
+#      "tag": "mixed",
+#      "listen": "127.0.0.1",
+#      "listen_port": 10450
+#    }
+#  ]
+#}
+global {
+    log_level: debug
+}
+```
+
+转换后，`inbounds` 字段将被覆盖，将使用注释中指定的配置（端口 10450），而非默认的 1080。
+
+- 对象类型递归合并；数组或基本类型直接覆盖
+
+### sing-box 配置覆盖 dae
+
+在 sing-box JSON/JSONC 文件开头用 `//` 注释写入 dae DSL：
+
+```json
+//global {
+//  tproxy_port: 54321
+//  wan_interface: eth0
+//}
+//routing {
+//  domain(geosite:cn) -> direct
+//  fallback: proxy
+//}
+{
+  "log": {"level": "info"},
+  ...
+}
+```
+
+转换后，注释中的 dae 配置会与生成的配置合并：
+
+- `global` 等键值对 section：按 key 合并，注释值覆盖生成值
+- `dns`、`routing` 等 `{}` 结构 section：递归合并，字段级别覆盖
+- `rules` 类列表：注释中的规则插入到生成规则之前（优先匹配）
+- `nodes`、`groups`：按名称/标签合并，注释值覆盖生成值
 
 ## 转换局限性
 
@@ -61,15 +127,3 @@ sing-box (JSON/JSONC) 与 dae (DSL) 配置格式的双向转换工具。
 - clash_mode 规则不参与转换
 - network / port / port_range 匹配 dae 不支持，转换后丢失
 - rule_set 引用：非 `geoip-/geosite-` 前缀的 rule_set 无法表达为 dae 语法
-
-## 开发
-
-```sh
-# 编译 WASM
-cargo build --release --target wasm32-unknown-unknown
-wasm-bindgen target/wasm32-unknown-unknown/release/sing_dae.wasm --out-dir frontend/pkg --target web
-
-# 前端
-cd frontend
-pnpm run build
-```

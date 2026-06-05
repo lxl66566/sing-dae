@@ -9,7 +9,17 @@ import "solid-prism-editor/scrollbar.css";
 import "solid-prism-editor/search.css";
 import init, { dae_to_singbox, singbox_to_dae } from "../pkg/sing_dae.js";
 
-const EXAMPLE_DAE = `global {
+const EXAMPLE_DAE = `#{
+#  "inbounds": [
+#    {
+#      "type": "mixed",
+#      "tag": "mixed",
+#      "listen": "127.0.0.1",
+#      "listen_port": 10450
+#    }
+#  ]
+#}
+global {
     log_level: info
     wan_interface: auto
     tproxy_port: 12345
@@ -277,12 +287,20 @@ function App(): JSX.Element {
 
         <div class="convert-col">
           <button class="btn-convert btn-down" onClick={convertLeftToRight} disabled={!wasmReady()} title="dae -> sing-box">
-            <span class="arrow-desktop"><FaSolidArrowRight size={22} /></span>
-            <span class="arrow-mobile"><FaSolidArrowDown size={22} /></span>
+            <span class="arrow-desktop">
+              <FaSolidArrowRight size={22} />
+            </span>
+            <span class="arrow-mobile">
+              <FaSolidArrowDown size={22} />
+            </span>
           </button>
           <button class="btn-convert btn-up" onClick={convertRightToLeft} disabled={!wasmReady()} title="sing-box -> dae">
-            <span class="arrow-desktop"><FaSolidArrowLeft size={22} /></span>
-            <span class="arrow-mobile"><FaSolidArrowUp size={22} /></span>
+            <span class="arrow-desktop">
+              <FaSolidArrowLeft size={22} />
+            </span>
+            <span class="arrow-mobile">
+              <FaSolidArrowUp size={22} />
+            </span>
           </button>
         </div>
 

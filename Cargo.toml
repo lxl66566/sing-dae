@@ -3,6 +3,10 @@ edition = "2024"
 name    = "sing-dae"
 version = "0.1.0"
 
+[features]
+default = ["comment-defaults"]
+comment-defaults = []
+
 [dependencies]
 pest         = "2"
 pest_derive  = "2"

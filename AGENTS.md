@@ -28,6 +28,7 @@ my-config-converter/
 ├── src/
 │   ├── lib.rs               # Wasm 导出入口，处理 JS/Rust 边界
 │   ├── error.rs             # 自定义错误枚举及处理
+│   ├── comment_defaults.rs  # 用注释覆盖生成产物的逻辑
 │   ├── dae/                 # dae 相关逻辑
 │   │   ├── dae.pest         # Pest 语法定义文件
 │   │   ├── parser.rs        # 文本 -> Dae AST
@@ -58,7 +59,7 @@ Vite + SolidJS + UnoCSS (tailwind preset) 的单页面应用。
 编译 rust 代码：
 
 ```sh
-cargo build --release --target wasm32-unknown-unknown
+cargo build --release --all-features --target wasm32-unknown-unknown
 wasm-bindgen target/wasm32-unknown-unknown/release/sing_dae.wasm --out-dir frontend/pkg --target web
 ```
 
