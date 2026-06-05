@@ -23,7 +23,7 @@ pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
         })
         .collect();
     let node_outbounds = build_node_outbounds(dae)?;
-    let mut group_outbounds = build_group_outbounds(dae, &node_tags)?;
+    let group_outbounds = build_group_outbounds(dae, &node_tags)?;
 
     let mut outbounds = Vec::new();
     outbounds.extend(node_outbounds);
@@ -32,10 +32,6 @@ pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
         tag: Some("direct".into()),
         ..Default::default()
     });
-
-    // resolve tag collisions: if a group has the same tag as an existing outbound,
-    // rename it with a `_group` suffix to keep sing-box config valid
-    resolve_group_tag_collisions(&mut group_outbounds, &outbounds);
     outbounds.extend(group_outbounds);
 
     let dns = build_dns(dae);
@@ -229,39 +225,6 @@ fn build_group_outbounds(dae: &DaeConfig, all_node_tags: &[String]) -> Result<Ve
             })
         })
         .collect()
-}
-
-fn resolve_group_tag_collisions(groups: &mut [Outbound], existing: &[Outbound]) {
-    let mut used: HashSet<String> = HashSet::new();
-    for ob in existing {
-        if let Some(tag) = &ob.tag {
-            used.insert(tag.clone());
-        }
-    }
-    for group_ob in groups.iter_mut() {
-        let tag = match &group_ob.tag {
-            Some(t) => t.clone(),
-            None => continue,
-        };
-        if !used.contains(&tag) {
-            used.insert(tag);
-            continue;
-        }
-        let mut counter = 0u32;
-        let new_tag = loop {
-            let candidate = if counter == 0 {
-                format!("{tag}_group")
-            } else {
-                format!("{tag}_group_{counter}")
-            };
-            if !used.contains(&candidate) {
-                break candidate;
-            }
-            counter += 1;
-        };
-        used.insert(new_tag.clone());
-        group_ob.tag = Some(new_tag);
-    }
 }
 
 fn filter_nodes(filters: &[FilterDef], all_tags: &[String]) -> Vec<String> {
