@@ -3,6 +3,7 @@ import { FaSolidArrowRight, FaSolidArrowLeft, FaSolidArrowDown, FaSolidArrowUp }
 import { Editor, type PrismEditor } from "solid-prism-editor";
 import { basicSetup } from "solid-prism-editor/setups";
 import "solid-prism-editor/prism/languages/json";
+import "./prism-dae";
 import "solid-prism-editor/layout.css";
 import "solid-prism-editor/themes/github-dark.css";
 import "solid-prism-editor/scrollbar.css";
@@ -272,7 +273,7 @@ function App(): JSX.Element {
           </div>
           <div class="editor-wrap">
             <Editor
-              language="text"
+              language="dae"
               value={EXAMPLE_DAE}
               lineNumbers
               wordWrap
