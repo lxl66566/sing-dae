@@ -11,7 +11,9 @@ sing-box 的各种前端都很难用，配置又是 DNS 和 routing 解耦，导
 
 dae (DSL) 与 sing-box (JSONC) 配置格式的双向转换工具。基于 Rust pest 语法解析、编译为 WASM。
 
-在线转换: https://lxl66566.github.io/sing-dae/
+在线转换: <https://lxl66566.github.io/sing-dae/>
+
+如果你想直接基于 dae 配置启动 sing-box 代理，请前往 [dae-box](https://github.com/lxl66566/dae-box)。
 
 ## 功能
 
@@ -128,3 +130,14 @@ global {
 - clash_mode 规则不参与转换
 - network / port / port_range 匹配 dae 不支持，转换后丢失
 - rule_set 引用：非 `geoip-/geosite-` 前缀的 rule_set 无法表达为 dae 语法
+
+## 作为 lib 使用
+
+你也可以使用 sing-dae 作为 Rust lib 依赖。
+
+在 Cargo.toml 中加入：
+
+```toml
+[dependencies]
+sing-dae = { version = "0.1.1" }
+```

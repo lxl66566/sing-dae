@@ -3,17 +3,19 @@ authors     = ["lxl66566"]
 categories  = ["command-line-utilities"]
 description = "Config converter between dae and sing-box"
 edition     = "2024"
+exclude     = ["frontend/", "AGENTS.md"]
 keywords    = ["dae", "sing-box", "proxy", "converter", "wasm"]
-license     = "MIT"
+license     = "Apache-2.0"
 name        = "sing-dae"
 readme      = "README.md"
 repository  = "https://github.com/lxl66566/sing-dae"
-version     = "0.1.0"
+version     = "0.1.1"
 
 
 [features]
 comment-defaults = []
 default          = ["comment-defaults"]
+wasm             = ["wasm-bindgen"]
 
 [dependencies]
 pest         = "2"
@@ -22,7 +24,7 @@ regex-lite   = "0.1"
 serde        = { version = "1", features = ["derive"] }
 serde_json   = "1"
 thiserror    = "2"
-wasm-bindgen = "0.2"
+wasm-bindgen = { version = "0.2", optional = true }
 
 [dev-dependencies]
 pretty_assertions = "1"

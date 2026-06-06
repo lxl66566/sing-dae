@@ -25,7 +25,7 @@ jobs:
       - uses: mozilla-actions/sccache-action@v0.0.9
 
       - name: Build wasm
-        run: cargo build --release --target wasm32-unknown-unknown
+        run: cargo build --release --all-features --target wasm32-unknown-unknown
 
       - name: Install wasm-bindgen-cli
         uses: cargo-bins/cargo-binstall@main
