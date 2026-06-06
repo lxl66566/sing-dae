@@ -1,12 +1,15 @@
 use std::collections::HashSet;
 
 use crate::{
-    convert::dns_utils::{build_dae_upstream_url, is_virtual_dns_type},
+    convert::{
+        dns_utils::{build_dae_upstream_url, is_virtual_dns_type},
+        protocol,
+    },
     dae::ast::{
         DaeConfig, DnsSection, Entry, FilterDef, GroupDef, KeyValue, PolicyDef, RoutingRule,
         RoutingSection,
     },
-    error::{AppError, Result},
+    error::Result,
     singbox::config::SingBoxConfig,
 };
 
@@ -73,10 +76,10 @@ fn build_global(sing: &SingBoxConfig) -> Vec<KeyValue> {
 fn build_nodes(sing: &SingBoxConfig) -> Result<Vec<Entry>> {
     sing.outbounds
         .iter()
-        .filter(|ob| is_proxy_type(&ob.outbound_type))
+        .filter(|ob| protocol::is_proxy_type(&ob.outbound_type))
         .map(|ob| {
             let tag = ob.tag.as_deref().unwrap_or(&ob.outbound_type);
-            let link = build_node_link(ob)?;
+            let link = protocol::build_node_link(ob)?;
             Ok(Entry::Tagged {
                 key: tag.to_string(),
                 value: link,
@@ -84,74 +87,6 @@ fn build_nodes(sing: &SingBoxConfig) -> Result<Vec<Entry>> {
         })
         .collect()
 }
-
-fn is_proxy_type(t: &str) -> bool {
-    matches!(
-        t,
-        "hysteria2" | "trojan" | "vmess" | "vless" | "shadowsocks"
-    )
-}
-
-fn build_node_link(ob: &crate::singbox::config::Outbound) -> Result<String> {
-    let tag = ob.tag.as_deref().unwrap_or(&ob.outbound_type);
-    let server = ob
-        .server
-        .as_deref()
-        .ok_or_else(|| AppError::Conversion(format!("outbound '{tag}' missing server")))?;
-    let port = resolve_port(ob, tag)?;
-    let fragment = simple_percent_encode(tag);
-    let sni = ob
-        .tls
-        .as_ref()
-        .and_then(|t| t.server_name.clone())
-        .unwrap_or_else(|| server.to_string());
-
-    match ob.outbound_type.as_str() {
-        "hysteria2" => {
-            let password = ob.password.as_deref().unwrap_or("");
-            Ok(format!(
-                "hy2://{password}@{server}:{port}/?sni={sni}#{fragment}"
-            ))
-        }
-        "trojan" => {
-            let password = ob.password.as_deref().unwrap_or("");
-            Ok(format!(
-                "trojan://{password}@{server}:{port}/?type=tcp&security=tls&sni={sni}#{fragment}"
-            ))
-        }
-        "vless" => {
-            let uuid = ob.uuid.as_deref().unwrap_or("");
-            let security = ob.security.as_deref().unwrap_or("tls");
-            Ok(format!(
-                "vless://{uuid}@{server}:{port}/?type=tcp&security={security}&sni={sni}#{fragment}"
-            ))
-        }
-        "vmess" => {
-            let uuid = ob.uuid.as_deref().unwrap_or("");
-            let scy = ob.security.as_deref().unwrap_or("auto");
-            let tls_enabled = ob.tls.as_ref().is_some_and(|t| t.enabled.unwrap_or(false));
-            let tls_str = if tls_enabled { "tls" } else { "" };
-            let json = format!(
-                r#"{{"v":"2","ps":"{tag}","add":"{server}","port":"{port}",\
-                "id":"{uuid}","aid":"0","net":"tcp","type":"none",\
-                "host":"","path":"","scy":"{scy}","tls":"{tls_str}","sni":"{sni}"}}"#
-            );
-            Ok(format!("vmess://{}", base64_encode(json.as_bytes())))
-        }
-        "shadowsocks" => {
-            let method = ob.method.as_deref().unwrap_or("aes-256-gcm");
-            let password = ob.password.as_deref().unwrap_or("");
-            let userinfo = base64_encode(format!("{method}:{password}").as_bytes());
-            Ok(format!("ss://{userinfo}@{server}:{port}#{fragment}"))
-        }
-        _ => Err(AppError::Conversion(format!(
-            "unsupported outbound type: '{}'",
-            ob.outbound_type
-        ))),
-    }
-}
-
-// ---- Selector/URLTest Outbounds -> Groups ----
 
 fn build_groups(sing: &SingBoxConfig) -> Vec<GroupDef> {
     sing.outbounds
@@ -386,82 +321,6 @@ fn collect_dip_args(rule: &crate::singbox::config::RouteRule) -> Vec<String> {
     args
 }
 
-fn resolve_port(ob: &crate::singbox::config::Outbound, tag: &str) -> Result<u16> {
-    if let Some(port) = ob.server_port {
-        return Ok(port);
-    }
-    if let Some(ports) = &ob.server_ports {
-        let first_str = ports.first().ok_or_else(|| {
-            AppError::Conversion(format!(
-                "outbound '{tag}' has no server_port and empty server_ports"
-            ))
-        })?;
-        let digits: String = first_str
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
-        let first = digits.parse::<u16>().ok().ok_or_else(|| {
-            AppError::Conversion(format!(
-                "outbound '{tag}' has invalid server_ports '{ports:?}'"
-            ))
-        })?;
-        return Ok(first);
-    }
-    Err(AppError::Conversion(format!(
-        "outbound '{tag}' missing server_port or server_ports"
-    )))
-}
-
-// ---- Encoding helpers ----
-
-const HEX_TABLE: &[u8; 16] = b"0123456789ABCDEF";
-
-fn simple_percent_encode(s: &str) -> String {
-    let mut result = String::with_capacity(s.len());
-    for byte in s.bytes() {
-        match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                result.push(byte as char);
-            }
-            _ => {
-                result.push('%');
-                let hi = (byte >> 4) & 0x0F;
-                let lo = byte & 0x0F;
-                result.push(HEX_TABLE[hi as usize] as char);
-                result.push(HEX_TABLE[lo as usize] as char);
-            }
-        }
-    }
-    result
-}
-
-const BASE64_TABLE: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-fn base64_encode(data: &[u8]) -> String {
-    let mut result = String::new();
-    for chunk in data.chunks(3) {
-        let b0 = u32::from(chunk[0]);
-        let b1 = u32::from(*chunk.get(1).unwrap_or(&0));
-        let b2 = u32::from(*chunk.get(2).unwrap_or(&0));
-
-        let triplet = (b0 << 16) | (b1 << 8) | b2;
-
-        result.push(BASE64_TABLE[((triplet >> 18) & 0x3F) as usize] as char);
-        result.push(BASE64_TABLE[((triplet >> 12) & 0x3F) as usize] as char);
-        result.push(if chunk.len() > 1 {
-            BASE64_TABLE[((triplet >> 6) & 0x3F) as usize] as char
-        } else {
-            '='
-        });
-        result.push(if chunk.len() > 2 {
-            BASE64_TABLE[(triplet & 0x3F) as usize] as char
-        } else {
-            '='
-        });
-    }
-    result
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -478,6 +337,7 @@ mod tests {
                 enabled: Some(true),
                 server_name: Some("example.com".into()),
                 insecure: None,
+                alpn: None,
             }),
             ..Default::default()
         }
@@ -532,6 +392,7 @@ mod tests {
                     enabled: Some(true),
                     server_name: Some("rfc.852456.xyz".into()),
                     insecure: None,
+                    alpn: None,
                 }),
                 ..Default::default()
             }],
@@ -561,6 +422,7 @@ mod tests {
                     enabled: Some(true),
                     server_name: Some("trojan.example.com".into()),
                     insecure: None,
+                    alpn: None,
                 }),
                 ..Default::default()
             }],

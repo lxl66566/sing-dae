@@ -38,6 +38,7 @@ my-config-converter/
 │   │   └── config.rs        # 基于 serde 定义的 sing-box 结构体
 │   └── convert/             # 核心转换逻辑
 │       ├── dns_utils.rs     # DNS 相关工具函数（共用）
+│       ├── protocol.rs      # 协议兼容层
 │       ├── dae_to_sing.rs   # Dae AST -> SingBox Config
 │       └── sing_to_dae.rs   # SingBox Config -> Dae AST
 ├── tests/                   # 集成测试目录

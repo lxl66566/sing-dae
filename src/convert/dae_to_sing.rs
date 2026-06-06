@@ -1,18 +1,16 @@
-use std::{
-    collections::{HashMap, HashSet},
-    net::IpAddr,
-    str::FromStr,
-};
+use std::{collections::HashSet, net::IpAddr, str::FromStr};
 
 use regex_lite::Regex;
 
 use crate::{
-    convert::dns_utils::{clean_quoted, extract_paren_args, parse_comma_args, parse_dns_upstream},
+    convert::{
+        dns_utils::{clean_quoted, extract_paren_args, parse_comma_args, parse_dns_upstream},
+        protocol,
+    },
     dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule},
-    error::{AppError, Result},
+    error::Result,
     singbox::config::{
         Dns, DnsRule, DnsServer, Inbound, Log, Outbound, Route, RouteRule, RuleSet, SingBoxConfig,
-        TlsConfig,
     },
 };
 
@@ -103,113 +101,14 @@ fn build_node_outbounds(dae: &DaeConfig) -> Result<Vec<Outbound>> {
         .nodes
         .iter()
         .filter_map(|entry| match entry {
-            Entry::Tagged { key, value } => parse_node_link(key, value).ok(),
+            Entry::Tagged { key, value } => protocol::parse_node_link(key, value).ok(),
             Entry::Untagged(val) => {
                 let tag = format!("untagged_{}", &val[..val.len().min(8)]);
-                parse_node_link(&tag, val).ok()
+                protocol::parse_node_link(&tag, val).ok()
             }
         })
         .collect();
     Ok(outbounds)
-}
-
-fn parse_node_link(tag: &str, link: &str) -> Result<Outbound> {
-    let (scheme, rest) = link
-        .split_once("://")
-        .ok_or_else(|| AppError::Conversion(format!("invalid node link: {link}")))?;
-
-    if rest.contains(" -> ") {
-        return Err(AppError::Conversion(format!(
-            "chain nodes not supported: {link}"
-        )));
-    }
-
-    let _fragment = match rest.rfind('#') {
-        Some(idx) => &rest[idx + 1..],
-        None => "",
-    };
-
-    let main_part = match rest.rfind('#') {
-        Some(idx) => &rest[..idx],
-        None => rest,
-    };
-
-    let (authority, query) = match main_part.find('?') {
-        Some(idx) => (&main_part[..idx], Some(&main_part[idx + 1..])),
-        None => (main_part, None),
-    };
-
-    let at_pos = authority.rfind('@');
-    let (credential, host_port) = match at_pos {
-        Some(pos) => (&authority[..pos], &authority[pos + 1..]),
-        None => ("", authority),
-    };
-
-    let colon_pos = host_port.rfind(':');
-    let (host, port) = match colon_pos {
-        Some(pos) => (
-            host_port[..pos].to_string(),
-            host_port[pos + 1..]
-                .trim_end_matches('/')
-                .parse::<u16>()
-                .ok(),
-        ),
-        None => (host_port.to_string(), None),
-    };
-
-    let params = parse_query_params(query.unwrap_or(""));
-    let sni = params.get("sni").cloned();
-
-    let outbound_type = match scheme {
-        "hy2" => "hysteria2",
-        "ss" => "shadowsocks",
-        other => other,
-    };
-
-    let (password, uuid) = match scheme {
-        "vless" => (None, Some(credential.to_string())),
-        _ => (Some(credential.to_string()), None),
-    };
-
-    let tls = if sni.is_some() || matches!(scheme, "hy2" | "trojan") {
-        Some(TlsConfig {
-            enabled: Some(true),
-            server_name: sni,
-            insecure: None,
-        })
-    } else {
-        None
-    };
-
-    Ok(Outbound {
-        outbound_type: outbound_type.to_string(),
-        tag: Some(tag.to_string()),
-        server: Some(host),
-        server_port: port,
-        server_ports: None,
-        password,
-        up_mbps: None,
-        down_mbps: None,
-        tls,
-        method: None,
-        uuid,
-        security: None,
-        outbounds: None,
-        domain_resolver: None,
-    })
-}
-
-fn parse_query_params(query: &str) -> HashMap<String, String> {
-    let mut params = HashMap::new();
-    for pair in query.split('&') {
-        if pair.is_empty() {
-            continue;
-        }
-        if let Some((key, value)) = pair.split_once('=') {
-            params.insert(key.to_string(), value.to_string());
-        }
-    }
-    params
 }
 
 // ---- Groups -> Selector/UrlTest Outbounds ----
@@ -234,18 +133,8 @@ fn build_group_outbounds(dae: &DaeConfig, all_node_tags: &[String]) -> Result<Ve
             Some(Ok(Outbound {
                 outbound_type: outbound_type.to_string(),
                 tag: Some(group.name.clone()),
-                server: None,
-                server_port: None,
-                server_ports: None,
-                password: None,
-                up_mbps: None,
-                down_mbps: None,
-                tls: None,
-                method: None,
-                uuid: None,
-                security: None,
                 outbounds: Some(matched),
-                domain_resolver: None,
+                ..Default::default()
             }))
         })
         .collect()

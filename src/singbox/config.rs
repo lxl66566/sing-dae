@@ -138,6 +138,16 @@ pub struct Outbound {
     pub uuid: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub security: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flow: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub congestion_control: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub udp_relay_mode: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub obfs_type: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub obfs_password: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbounds: Option<Vec<String>>,
@@ -146,7 +156,7 @@ pub struct Outbound {
     pub domain_resolver: Option<String>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct TlsConfig {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
@@ -154,6 +164,8 @@ pub struct TlsConfig {
     pub server_name: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub insecure: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alpn: Option<Vec<String>>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

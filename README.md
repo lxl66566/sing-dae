@@ -18,7 +18,8 @@ dae (DSL) 与 sing-box (JSONC) 配置格式的双向转换工具。基于 Rust p
 - dae -> sing-box: 解析 dae DSL，转换为 sing-box JSON 配置
   - 支持解析 regex 规则组、must_direct 出站等
 - sing-box -> dae: 解析 sing-box JSONC，转换为 dae DSL
-- 支持节点链接（hy2、trojan、vmess、vless、shadowsocks）、DNS、路由规则、策略组转换
+- 支持节点链接、DNS、路由规则、策略组转换
+  - 支持的协议：Shadowsocks | Vmess | Vless | Trojan | Hysteria2 | Tuic | AnyTLS
 - 编译为 WASM，web 端运行，不进行任何配置上传
 - 支持使用注释，覆盖产物的字段
 
