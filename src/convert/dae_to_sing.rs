@@ -10,7 +10,8 @@ use crate::{
     dae::ast::{DaeConfig, Entry, FilterDef, PolicyDef, RoutingRule},
     error::Result,
     singbox::config::{
-        Dns, DnsRule, DnsServer, Inbound, Log, Outbound, Route, RouteRule, RuleSet, SingBoxConfig,
+        Dns, DnsRule, DnsServer, HttpClient, Inbound, Log, Outbound, Route, RouteRule, RuleSet,
+        SingBoxConfig,
     },
 };
 
@@ -48,7 +49,14 @@ pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
     let mut dns = build_dns(dae);
     let rule_set_tags = collect_rule_set_tags(dae);
     let domain_resolver_tag = resolve_domain_resolver(&mut dns, &outbounds);
-    let route = build_route(dae, &rule_set_tags, domain_resolver_tag);
+
+    let (http_clients, default_http_client) = build_http_clients(&outbounds);
+    let route = build_route(
+        dae,
+        &rule_set_tags,
+        domain_resolver_tag,
+        default_http_client,
+    );
 
     let inbounds = build_default_inbounds();
     let experimental = build_default_experimental();
@@ -59,6 +67,7 @@ pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
         inbounds,
         outbounds,
         endpoints: vec![],
+        http_clients,
         route,
         experimental: Some(experimental),
     })
@@ -445,12 +454,44 @@ fn resolve_domain_resolver(dns: &mut Option<Dns>, outbounds: &[Outbound]) -> Opt
     Some(tag)
 }
 
+// ---- HTTP Clients ----
+
+fn find_proxy_detour_tag(outbounds: &[Outbound]) -> Option<String> {
+    // Prefer the first group (selector/urltest) tag — groups are appended last
+    for ob in outbounds.iter().rev() {
+        if matches!(ob.outbound_type.as_str(), "selector" | "urltest") {
+            return ob.tag.clone();
+        }
+    }
+    // Fall back to first non-direct proxy node
+    for ob in outbounds {
+        if ob.tag.as_deref() != Some("direct") {
+            return ob.tag.clone();
+        }
+    }
+    None
+}
+
+fn build_http_clients(outbounds: &[Outbound]) -> (Vec<HttpClient>, Option<String>) {
+    let detour_tag = find_proxy_detour_tag(outbounds);
+    if let Some(detour) = detour_tag {
+        let client = HttpClient {
+            tag: Some("proxy-client".to_string()),
+            detour: Some(detour),
+        };
+        (vec![client], Some("proxy-client".to_string()))
+    } else {
+        (vec![], None)
+    }
+}
+
 // ---- Route ----
 
 fn build_route(
     dae: &DaeConfig,
     rule_set_tags: &HashSet<String>,
     domain_resolver_tag: Option<String>,
+    default_http_client: Option<String>,
 ) -> Option<Route> {
     let rule_set = build_rule_set(rule_set_tags);
 
@@ -458,6 +499,7 @@ fn build_route(
         && dae.routing.fallback.is_none()
         && rule_set.is_empty()
         && domain_resolver_tag.is_none()
+        && default_http_client.is_none()
     {
         return None;
     }
@@ -469,6 +511,7 @@ fn build_route(
         rule_set,
         final_outbound: dae.routing.fallback.clone(),
         default_domain_resolver: domain_resolver_tag.map(serde_json::Value::String),
+        default_http_client,
     })
 }
 
@@ -1143,6 +1186,61 @@ mod tests {
             Some("dns-direct"),
             "final DNS should be dns-direct when must_direct rules exist"
         );
+    }
+
+    #[test]
+    fn http_clients_uses_group_tag_when_groups_exist() {
+        let dae = DaeConfig {
+            nodes: vec![
+                Entry::Tagged {
+                    key: "jp-1".into(),
+                    value: "hy2://p@h:1".into(),
+                },
+                Entry::Tagged {
+                    key: "us-1".into(),
+                    value: "hy2://p@h:2".into(),
+                },
+            ],
+            groups: vec![GroupDef {
+                name: "proxy".into(),
+                filters: vec![FilterDef {
+                    expression: "name(regex: '.*')".into(),
+                    latency_offset: None,
+                }],
+                policy: PolicyDef::MinMovingAvg,
+                extra: vec![],
+            }],
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae).unwrap();
+        assert_eq!(cfg.http_clients.len(), 1);
+        assert_eq!(cfg.http_clients[0].tag.as_deref(), Some("proxy-client"));
+        assert_eq!(cfg.http_clients[0].detour.as_deref(), Some("proxy"));
+        let route = cfg.route.as_ref().unwrap();
+        assert_eq!(route.default_http_client.as_deref(), Some("proxy-client"));
+    }
+
+    #[test]
+    fn http_clients_falls_back_to_first_node_when_no_group() {
+        let dae = DaeConfig {
+            nodes: vec![Entry::Tagged {
+                key: "my-proxy".into(),
+                value: "hy2://p@h:1".into(),
+            }],
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae).unwrap();
+        assert_eq!(cfg.http_clients.len(), 1);
+        assert_eq!(cfg.http_clients[0].detour.as_deref(), Some("my-proxy"));
+        let route = cfg.route.as_ref().unwrap();
+        assert_eq!(route.default_http_client.as_deref(), Some("proxy-client"));
+    }
+
+    #[test]
+    fn no_http_clients_when_no_nodes() {
+        let dae = DaeConfig::default();
+        let cfg = convert(&dae).unwrap();
+        assert!(cfg.http_clients.is_empty());
     }
 
     #[test]

@@ -37,6 +37,7 @@ dae (DSL) 与 sing-box (JSONC) 配置格式的双向转换工具。基于 Rust p
 | inbounds | `mixed` 入站，监听 `127.0.0.1:1080` | sing-box 必需的入站配置 |
 | experimental.cache_file | `enabled: true, store_fakeip: true` | DNS 缓存，推荐启用 |
 | route.rule_set | 根据规则中引用的 geosite/geoip 自动生成 | 使用 [SagerNet 规则集](https://github.com/SagerNet/sing-geosite/tree/rule-set) |
+| route.default_http_client + http_clients | `proxy-client`, detour 指向第一个组或第一个节点 | 用于通过代理拉取远程 rule_set srs 文件 |
 
 ### sing-box -> dae
 

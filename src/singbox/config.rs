@@ -17,6 +17,9 @@ pub struct SingBoxConfig {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub endpoints: Vec<serde_json::Value>,
 
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub http_clients: Vec<HttpClient>,
+
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub route: Option<Route>,
 
@@ -178,6 +181,16 @@ pub struct Route {
     pub final_outbound: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_domain_resolver: Option<serde_json::Value>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_http_client: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HttpClient {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tag: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub detour: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
