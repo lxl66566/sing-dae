@@ -1,16 +1,19 @@
 use std::{collections::HashSet, fs};
 
 use sing_dae::{
+    ConvertOptions,
     convert::{dae_to_sing, sing_to_dae},
     dae::parser,
 };
+
+const PRERELEASE: ConvertOptions = ConvertOptions { prerelease: true };
 
 #[test]
 fn dae_to_sing_from_fixture() {
     let input = fs::read_to_string("assets/absx.dae").expect("read");
     let dae_config = parser::parse(&input).expect("parse dae");
 
-    let sing_config = dae_to_sing::convert(&dae_config).expect("convert to sing");
+    let sing_config = dae_to_sing::convert(&dae_config, &PRERELEASE).expect("convert to sing");
 
     assert!(sing_config.log.is_some());
     assert!(!sing_config.outbounds.is_empty());
@@ -57,7 +60,7 @@ fn dae_roundtrip_via_sing() {
     let input = fs::read_to_string("assets/absx.dae").expect("read");
     let original = parser::parse(&input).expect("parse dae");
 
-    let sing = dae_to_sing::convert(&original).expect("to sing");
+    let sing = dae_to_sing::convert(&original, &PRERELEASE).expect("to sing");
 
     let dae2 = sing_to_dae::convert(&sing).expect("back to dae");
 
@@ -70,7 +73,7 @@ fn builtin_keyword_groups_are_ignored() {
     let input = fs::read_to_string("assets/direct_group_conflict.dae").expect("read fixture");
     let dae_config = parser::parse(&input).expect("parse dae");
 
-    let sing_config = dae_to_sing::convert(&dae_config).expect("convert to sing");
+    let sing_config = dae_to_sing::convert(&dae_config, &PRERELEASE).expect("convert to sing");
 
     // no duplicate tags
     let mut seen_tags = HashSet::new();
@@ -130,7 +133,7 @@ fn sing_roundtrip_via_dae() {
 
     let dae = sing_to_dae::convert(&original).expect("to dae");
 
-    let sing2 = dae_to_sing::convert(&dae).expect("back to sing");
+    let sing2 = dae_to_sing::convert(&dae, &PRERELEASE).expect("back to sing");
 
     assert_eq!(
         original.outbounds.len(),

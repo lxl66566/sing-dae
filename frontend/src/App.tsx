@@ -7,7 +7,7 @@ import "solid-prism-editor/layout.css";
 import "solid-prism-editor/themes/github-dark.css";
 import "solid-prism-editor/scrollbar.css";
 import "solid-prism-editor/search.css";
-import init, { dae_to_singbox, singbox_to_dae } from "../pkg/sing_dae.js";
+import init, { dae_to_singbox_with_opts, singbox_to_dae_with_opts } from "../pkg/sing_dae.js";
 
 const EXAMPLE_DAE = `#{
 #  "inbounds": [
@@ -173,6 +173,7 @@ function App(): JSX.Element {
   const [statusType, setStatusType] = createSignal<StatusType>("info");
   const [wasmReady, setWasmReady] = createSignal(false);
   const [copiedSide, setCopiedSide] = createSignal<"left" | "right" | null>(null);
+  const [prerelease, setPrerelease] = createSignal(false);
 
   let leftEditor: PrismEditor | undefined;
   let rightEditor: PrismEditor | undefined;
@@ -200,7 +201,7 @@ function App(): JSX.Element {
       return;
     }
     try {
-      const result = dae_to_singbox(text);
+      const result = dae_to_singbox_with_opts(text, prerelease());
       setEditorValue(rightEditor, result);
       setStatus("dae -> sing-box OK");
       setStatusType("success");
@@ -219,7 +220,7 @@ function App(): JSX.Element {
       return;
     }
     try {
-      const result = singbox_to_dae(text);
+      const result = singbox_to_dae_with_opts(text, prerelease());
       setEditorValue(leftEditor, result);
       setStatus("sing-box -> dae OK");
       setStatusType("success");
@@ -257,6 +258,12 @@ function App(): JSX.Element {
       <header class="app-header">
         <h1 class="app-title">sing-dae</h1>
         <span class="app-subtitle">Config Converter</span>
+        <label class="toggle-label" title="Enable sing-box 1.14+ pre-release features (e.g. http_clients)">
+          <span class="toggle-text">Pre-release sing-box format</span>
+          <button class={`toggle-switch${prerelease() ? " active" : ""}`} role="switch" aria-checked={prerelease()} onClick={() => setPrerelease((v) => !v)}>
+            <span class="toggle-thumb" />
+          </button>
+        </label>
         <button class="btn-example" onClick={loadExample} disabled={!wasmReady()}>
           Example
         </button>
@@ -412,6 +419,47 @@ function App(): JSX.Element {
         .btn-example:disabled {
           opacity: 0.3;
           cursor: not-allowed;
+        }
+
+        .toggle-label {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          margin-left: 8px;
+          cursor: pointer;
+          user-select: none;
+        }
+        .toggle-text {
+          font-size: 12px;
+          color: #71717a;
+        }
+        .toggle-switch {
+          position: relative;
+          width: 32px;
+          height: 18px;
+          border-radius: 9px;
+          border: none;
+          background: #27272a;
+          cursor: pointer;
+          padding: 0;
+          transition: background 0.2s;
+        }
+        .toggle-switch.active {
+          background: #4f46e5;
+        }
+        .toggle-thumb {
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 14px;
+          height: 14px;
+          border-radius: 50%;
+          background: #a1a1aa;
+          transition: transform 0.2s, background 0.2s;
+        }
+        .toggle-switch.active .toggle-thumb {
+          transform: translateX(14px);
+          background: #e4e4e7;
         }
 
         /* Desktop: side-by-side layout */

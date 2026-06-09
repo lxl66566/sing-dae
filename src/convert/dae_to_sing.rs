@@ -3,6 +3,7 @@ use std::{collections::HashSet, net::IpAddr, str::FromStr};
 use regex_lite::Regex;
 
 use crate::{
+    ConvertOptions,
     convert::{
         dns_utils::{clean_quoted, extract_paren_args, parse_comma_args, parse_dns_upstream},
         protocol,
@@ -20,7 +21,7 @@ use crate::{
 const BUILTIN_OUTBOUNDS: [&str; 3] = ["direct", "must_direct", "block"];
 
 #[allow(clippy::missing_errors_doc)]
-pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
+pub fn convert(dae: &DaeConfig, opts: &ConvertOptions) -> Result<SingBoxConfig> {
     let log = build_log(dae);
 
     let node_outbounds = build_node_outbounds(dae)?;
@@ -50,7 +51,11 @@ pub fn convert(dae: &DaeConfig) -> Result<SingBoxConfig> {
     let rule_set_tags = collect_rule_set_tags(dae);
     let domain_resolver_tag = resolve_domain_resolver(&mut dns, &outbounds);
 
-    let (http_clients, default_http_client) = build_http_clients(&outbounds);
+    let (http_clients, default_http_client) = if opts.prerelease {
+        build_http_clients(&outbounds)
+    } else {
+        (vec![], None)
+    };
     let route = build_route(
         dae,
         &rule_set_tags,
@@ -687,6 +692,9 @@ mod tests {
     use super::*;
     use crate::dae::ast::*;
 
+    const PRERELEASE: ConvertOptions = ConvertOptions { prerelease: true };
+    const STABLE: ConvertOptions = ConvertOptions { prerelease: false };
+
     #[test]
     fn roundtrip_log_level() {
         let dae = DaeConfig {
@@ -696,7 +704,7 @@ mod tests {
             }],
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         assert_eq!(cfg.log.as_ref().unwrap().level.as_deref(), Some("debug"));
     }
 
@@ -709,7 +717,7 @@ mod tests {
             }],
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let ob = &cfg.outbounds[0];
         assert_eq!(ob.outbound_type, "hysteria2");
         assert_eq!(ob.tag.as_deref(), Some("my-hy"));
@@ -729,7 +737,7 @@ mod tests {
             }],
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let ob = &cfg.outbounds[0];
         assert_eq!(ob.outbound_type, "trojan");
         assert_eq!(ob.server_port, Some(8080));
@@ -738,7 +746,7 @@ mod tests {
     #[test]
     fn direct_outbound_always_present() {
         let dae = DaeConfig::default();
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         assert!(
             cfg.outbounds
                 .iter()
@@ -770,7 +778,7 @@ mod tests {
             }],
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let jp_group = cfg
             .outbounds
             .iter()
@@ -804,7 +812,7 @@ mod tests {
             }],
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let g = cfg
             .outbounds
             .iter()
@@ -826,7 +834,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let route = cfg.route.as_ref().unwrap();
         let r = &route.rules[0];
         assert_eq!(r.outbound.as_deref(), Some("direct"));
@@ -847,7 +855,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let r = &cfg.route.unwrap().rules[0];
         assert_eq!(r.ip_is_private, Some(true));
         assert_eq!(r.ip_cidr, vec!["10.0.0.0/8"]);
@@ -865,7 +873,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let r = &cfg.route.unwrap().rules[0];
         assert_eq!(r.action.as_deref(), Some("reject"));
         assert!(r.outbound.is_none());
@@ -883,7 +891,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let r = &cfg.route.unwrap().rules[0];
         assert_eq!(r.process_name, vec!["sshd", "systemd-resolved"]);
         assert_eq!(r.outbound.as_deref(), Some("direct"));
@@ -901,7 +909,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let dns = cfg.dns.unwrap();
         assert_eq!(dns.servers.len(), 2);
         assert_eq!(dns.servers[0].tag.as_deref(), Some("mydoh"));
@@ -933,7 +941,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let dns = cfg.dns.unwrap();
         assert_eq!(dns.rules.len(), 1);
         let rule = &dns.rules[0];
@@ -971,7 +979,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let dns = cfg.dns.unwrap();
 
         // dns-local is added as domain_resolver for domain-based servers
@@ -1018,7 +1026,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let srv = &cfg.dns.unwrap().servers[0];
         assert_eq!(srv.tag.as_deref(), Some("v6dns"));
         assert_eq!(srv.dns_type.as_deref(), Some("udp"));
@@ -1057,7 +1065,7 @@ mod tests {
             }],
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let proxy_group = cfg
             .outbounds
             .iter()
@@ -1097,7 +1105,7 @@ mod tests {
             }],
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let g = cfg
             .outbounds
             .iter()
@@ -1131,7 +1139,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
 
         // must_direct triggers DNS section even without explicit dns config
         let dns = cfg.dns.as_ref().expect("dns section should exist");
@@ -1212,7 +1220,7 @@ mod tests {
             }],
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &PRERELEASE).unwrap();
         assert_eq!(cfg.http_clients.len(), 1);
         assert_eq!(cfg.http_clients[0].tag.as_deref(), Some("proxy-client"));
         assert_eq!(cfg.http_clients[0].detour.as_deref(), Some("proxy"));
@@ -1229,7 +1237,7 @@ mod tests {
             }],
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &PRERELEASE).unwrap();
         assert_eq!(cfg.http_clients.len(), 1);
         assert_eq!(cfg.http_clients[0].detour.as_deref(), Some("my-proxy"));
         let route = cfg.route.as_ref().unwrap();
@@ -1239,8 +1247,32 @@ mod tests {
     #[test]
     fn no_http_clients_when_no_nodes() {
         let dae = DaeConfig::default();
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &PRERELEASE).unwrap();
         assert!(cfg.http_clients.is_empty());
+    }
+
+    #[test]
+    fn stable_mode_skips_http_clients() {
+        let dae = DaeConfig {
+            nodes: vec![Entry::Tagged {
+                key: "my-proxy".into(),
+                value: "hy2://p@h:1".into(),
+            }],
+            groups: vec![GroupDef {
+                name: "proxy".into(),
+                filters: vec![FilterDef {
+                    expression: "name(regex: '.*')".into(),
+                    latency_offset: None,
+                }],
+                policy: PolicyDef::MinMovingAvg,
+                extra: vec![],
+            }],
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        assert!(cfg.http_clients.is_empty());
+        let route = cfg.route.as_ref().unwrap();
+        assert!(route.default_http_client.is_none());
     }
 
     #[test]
@@ -1259,7 +1291,7 @@ mod tests {
             },
             ..DaeConfig::default()
         };
-        let cfg = convert(&dae).unwrap();
+        let cfg = convert(&dae, &STABLE).unwrap();
         let route = cfg.route.as_ref().expect("route should exist");
         let resolver = route
             .default_domain_resolver
