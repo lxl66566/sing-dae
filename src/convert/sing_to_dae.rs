@@ -857,7 +857,7 @@ mod tests {
         };
         let dae = convert(&sing).unwrap();
         // hijack-dns sub-rules produce no dae rules
-        assert!(dae.routing.rules.is_empty());
+        assert_eq!(dae.routing.rules, []);
     }
 
     #[test]
@@ -1151,7 +1151,7 @@ mod tests {
             ..SingBoxConfig::default()
         };
         let dae = convert(&sing).unwrap();
-        assert!(dae.routing.rules.is_empty());
+        assert_eq!(dae.routing.rules, []);
     }
 
     #[test]
