@@ -1,15 +1,14 @@
 [package]
-authors     = ["lxl66566"]
 categories  = ["command-line-utilities"]
 description = "Config converter between dae and sing-box"
 edition     = "2024"
-exclude     = ["AGENTS.md", "frontend/"]
+include      = ["/LICENSE", "/README.md", "/src/**", "/assets/**", "/tests/**"]
 keywords    = ["converter", "dae", "proxy", "sing-box", "wasm"]
 license     = "Apache-2.0"
 name        = "sing-dae"
 readme      = "README.md"
 repository  = "https://github.com/lxl66566/sing-dae"
-version     = "0.1.1"
+version     = "0.1.2"
 
 [lib]
 crate-type = ["cdylib", "rlib"]
