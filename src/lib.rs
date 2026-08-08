@@ -81,21 +81,18 @@ mod wasm_exports {
     use crate::ConvertOptions;
 
     #[wasm_bindgen]
-    pub fn dae_to_singbox(dae_text: &str) -> std::result::Result<String, JsError> {
+    pub fn dae_to_singbox(dae_text: &str) -> Result<String, JsError> {
         crate::dae_to_singbox(dae_text).map_err(JsError::from)
     }
 
     #[wasm_bindgen]
-    pub fn dae_to_singbox_with_opts(
-        dae_text: &str,
-        prerelease: bool,
-    ) -> std::result::Result<String, JsError> {
+    pub fn dae_to_singbox_with_opts(dae_text: &str, prerelease: bool) -> Result<String, JsError> {
         let opts = ConvertOptions { prerelease };
         crate::dae_to_singbox_with_opts(dae_text, &opts).map_err(JsError::from)
     }
 
     #[wasm_bindgen]
-    pub fn singbox_to_dae(singbox_json: &str) -> std::result::Result<String, JsError> {
+    pub fn singbox_to_dae(singbox_json: &str) -> Result<String, JsError> {
         crate::singbox_to_dae(singbox_json).map_err(JsError::from)
     }
 
@@ -103,7 +100,7 @@ mod wasm_exports {
     pub fn singbox_to_dae_with_opts(
         singbox_json: &str,
         prerelease: bool,
-    ) -> std::result::Result<String, JsError> {
+    ) -> Result<String, JsError> {
         let opts = ConvertOptions { prerelease };
         crate::singbox_to_dae_with_opts(singbox_json, &opts).map_err(JsError::from)
     }

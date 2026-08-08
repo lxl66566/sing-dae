@@ -26,23 +26,23 @@ pub fn parse(input: &str) -> crate::error::Result<ast::DaeConfig> {
         match inner.as_rule() {
             Rule::global_section => {
                 config.global = parse_kv_block(inner);
-            }
+            },
             Rule::subscription_section => {
                 config.subscriptions = parse_entry_block(inner);
-            }
+            },
             Rule::node_section => {
                 config.nodes = parse_entry_block(inner);
-            }
+            },
             Rule::dns_section => {
                 config.dns = parse_dns_section(inner);
-            }
+            },
             Rule::group_section => {
                 config.groups = parse_group_section(inner);
-            }
+            },
             Rule::routing_section => {
                 config.routing = parse_routing_section(inner);
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -84,7 +84,7 @@ fn parse_entry_block(pair: pest::iterators::Pair<Rule>) -> Vec<ast::Entry> {
                         .map(|v| clean_value(v.as_str()))
                         .unwrap_or_default();
                     Some(ast::Entry::Tagged { key, value })
-                }
+                },
                 Rule::sub_untagged | Rule::node_untagged => {
                     let value = inner
                         .into_inner()
@@ -92,7 +92,7 @@ fn parse_entry_block(pair: pest::iterators::Pair<Rule>) -> Vec<ast::Entry> {
                         .map(|v| clean_value(v.as_str()))
                         .unwrap_or_default();
                     Some(ast::Entry::Untagged(value))
-                }
+                },
                 _ => None,
             }
         })
@@ -113,14 +113,14 @@ fn parse_dns_section(pair: pest::iterators::Pair<Rule>) -> ast::DnsSection {
             Rule::dns_kv => {
                 let kv = parse_single_kv(inner);
                 section.entries.push(kv);
-            }
+            },
             Rule::upstream_block => {
                 section.upstream = inner
                     .into_inner()
                     .filter(|pp| pp.as_rule() == Rule::upstream_entry)
                     .map(|pp| parse_single_kv(pp))
                     .collect();
-            }
+            },
             Rule::dns_routing_block => {
                 for rp in inner.into_inner() {
                     if rp.as_rule() != Rule::dns_routing_content {
@@ -134,17 +134,17 @@ fn parse_dns_section(pair: pest::iterators::Pair<Rule>) -> ast::DnsSection {
                             let (rules, fallback) = parse_dns_routing_block(rc);
                             section.request_rules = rules;
                             section.request_fallback = fallback;
-                        }
+                        },
                         Rule::response_block => {
                             let (rules, fallback) = parse_dns_routing_block(rc);
                             section.response_rules = rules;
                             section.response_fallback = fallback;
-                        }
-                        _ => {}
+                        },
+                        _ => {},
                     }
                 }
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 
@@ -160,11 +160,11 @@ fn parse_dns_routing_block(
         match p.as_rule() {
             Rule::dns_routing_rule => {
                 rules.push(parse_routing_rule(p));
-            }
+            },
             Rule::dns_fallback_line => {
                 fallback = p.into_inner().next().map(|t| t.as_str().trim().to_owned());
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
     (rules, fallback)
@@ -207,14 +207,14 @@ fn parse_group_section(pair: pest::iterators::Pair<Rule>) -> Vec<ast::GroupDef> 
                 match inner_rule.as_rule() {
                     Rule::filter_line => {
                         filters.push(parse_filter_line(inner_rule));
-                    }
+                    },
                     Rule::policy_line => {
                         policy = parse_policy_line(inner_rule);
-                    }
+                    },
                     Rule::group_kv => {
                         extra.push(parse_single_kv(inner_rule));
-                    }
-                    _ => {}
+                    },
+                    _ => {},
                 }
             }
 
@@ -283,12 +283,12 @@ fn parse_routing_section(pair: pest::iterators::Pair<Rule>) -> ast::RoutingSecti
         match inner.as_rule() {
             Rule::routing_rule => {
                 section.rules.push(parse_routing_rule(inner));
-            }
+            },
             Rule::fallback_line => {
                 let mut fi = inner.into_inner();
                 section.fallback = fi.next().map(|t| t.as_str().trim().to_owned());
-            }
-            _ => {}
+            },
+            _ => {},
         }
     }
 

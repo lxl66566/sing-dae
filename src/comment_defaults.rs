@@ -23,14 +23,14 @@ pub fn deep_merge(base: serde_json::Value, overrides: serde_json::Value) -> serd
                 match base_map.entry(key) {
                     serde_json::map::Entry::Occupied(mut e) => {
                         *e.get_mut() = deep_merge(e.get().clone(), val);
-                    }
+                    },
                     serde_json::map::Entry::Vacant(e) => {
                         e.insert(val);
-                    }
+                    },
                 }
             }
             serde_json::Value::Object(base_map)
-        }
+        },
         (_, over) => over,
     }
 }
@@ -133,10 +133,10 @@ fn merge_entries(base: &mut Vec<Entry>, overrides: &[Entry]) {
                 } else {
                     base.push(entry.clone());
                 }
-            }
+            },
             Entry::Untagged(_) => {
                 base.push(entry.clone());
-            }
+            },
         }
     }
 }
@@ -167,7 +167,7 @@ fn merge_dns_section(base: &mut DnsSection, overrides: &DnsSection) {
 fn merge_groups(base: &mut Vec<GroupDef>, overrides: &[GroupDef]) {
     for group in overrides {
         if let Some(existing) = base.iter_mut().find(|g| g.name == group.name) {
-            existing.filters = group.filters.clone();
+            existing.filters.clone_from(&group.filters);
             existing.policy = group.policy.clone();
             merge_key_values(&mut existing.extra, &group.extra);
         } else {
@@ -233,7 +233,8 @@ global {
 
     #[test]
     fn extract_singbox_dae_multiple_sections() {
-        let input = "//global {\n//    tproxy_port: 54321\n//}\n//routing {\n//    domain(geosite:cn) -> direct\n//    fallback: proxy\n//}\n{\"log\": {}}";
+        let input = "//global {\n//    tproxy_port: 54321\n//}\n//routing {\n//    \
+                     domain(geosite:cn) -> direct\n//    fallback: proxy\n//}\n{\"log\": {}}";
         let config = extract_singbox_comment_dae(input).unwrap();
         assert_eq!(config.global[0].key, "tproxy_port");
         assert_eq!(config.routing.rules.len(), 1);

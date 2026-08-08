@@ -1,4 +1,7 @@
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::HashMap,
+    fmt::{self, Write},
+};
 
 use crate::{
     error::{AppError, Result},
@@ -17,6 +20,7 @@ pub enum Protocol {
 }
 
 impl Protocol {
+    #[must_use]
     pub fn from_scheme(scheme: &str) -> Option<Self> {
         match scheme {
             "ss" | "shadowsocks" => Some(Self::Shadowsocks),
@@ -30,6 +34,7 @@ impl Protocol {
         }
     }
 
+    #[must_use]
     pub fn from_sing_type(t: &str) -> Option<Self> {
         match t {
             "shadowsocks" => Some(Self::Shadowsocks),
@@ -43,6 +48,7 @@ impl Protocol {
         }
     }
 
+    #[must_use]
     pub fn sing_type(self) -> &'static str {
         match self {
             Self::Shadowsocks => "shadowsocks",
@@ -55,6 +61,7 @@ impl Protocol {
         }
     }
 
+    #[must_use]
     pub fn dae_scheme(self) -> &'static str {
         match self {
             Self::Shadowsocks => "ss",
@@ -74,6 +81,7 @@ impl fmt::Display for Protocol {
     }
 }
 
+#[must_use]
 pub fn is_proxy_type(t: &str) -> bool {
     Protocol::from_sing_type(t).is_some()
 }
@@ -142,12 +150,12 @@ pub fn parse_node_link(tag: &str, link: &str) -> Result<Outbound> {
     };
 
     match protocol {
-        Protocol::Shadowsocks => build_shadowsocks(base, credential, tls),
-        Protocol::Vless => build_vless(base, credential, &params, tls),
-        Protocol::Trojan => build_trojan(base, credential, tls),
-        Protocol::Hysteria2 => build_hysteria2(base, credential, &params, tls),
-        Protocol::Tuic => build_tuic(base, credential, &params, tls),
-        Protocol::AnyTLS => build_anytls(base, credential, tls),
+        Protocol::Shadowsocks => Ok(build_shadowsocks(base, credential, tls)),
+        Protocol::Vless => Ok(build_vless(base, credential, &params, tls)),
+        Protocol::Trojan => Ok(build_trojan(base, credential, tls)),
+        Protocol::Hysteria2 => Ok(build_hysteria2(base, credential, &params, tls)),
+        Protocol::Tuic => Ok(build_tuic(base, credential, &params, tls)),
+        Protocol::AnyTLS => Ok(build_anytls(base, credential, tls)),
         Protocol::Vmess => unreachable!(),
     }
 }
@@ -204,17 +212,13 @@ fn build_tls(
     })
 }
 
-fn build_shadowsocks(
-    base: OutboundBase,
-    credential: &str,
-    tls: Option<TlsConfig>,
-) -> Result<Outbound> {
+fn build_shadowsocks(base: OutboundBase, credential: &str, tls: Option<TlsConfig>) -> Outbound {
     let (method, password) = decode_ss_credential(credential);
-    Ok(base.into_outbound(|ob| {
+    base.into_outbound(|ob| {
         ob.password = Some(password);
         ob.method = Some(method);
         ob.tls = tls;
-    }))
+    })
 }
 
 fn build_vless(
@@ -222,20 +226,20 @@ fn build_vless(
     credential: &str,
     params: &HashMap<String, String>,
     tls: Option<TlsConfig>,
-) -> Result<Outbound> {
-    Ok(base.into_outbound(|ob| {
+) -> Outbound {
+    base.into_outbound(|ob| {
         ob.uuid = Some(credential.to_string());
         ob.flow = params.get("flow").cloned();
         ob.security = params.get("security").cloned();
         ob.tls = tls;
-    }))
+    })
 }
 
-fn build_trojan(base: OutboundBase, credential: &str, tls: Option<TlsConfig>) -> Result<Outbound> {
-    Ok(base.into_outbound(|ob| {
+fn build_trojan(base: OutboundBase, credential: &str, tls: Option<TlsConfig>) -> Outbound {
+    base.into_outbound(|ob| {
         ob.password = Some(credential.to_string());
         ob.tls = tls;
-    }))
+    })
 }
 
 fn build_hysteria2(
@@ -243,15 +247,15 @@ fn build_hysteria2(
     credential: &str,
     params: &HashMap<String, String>,
     tls: Option<TlsConfig>,
-) -> Result<Outbound> {
-    Ok(base.into_outbound(|ob| {
+) -> Outbound {
+    base.into_outbound(|ob| {
         ob.password = Some(credential.to_string());
         ob.up_mbps = params.get("up").and_then(|v| v.parse().ok());
         ob.down_mbps = params.get("down").and_then(|v| v.parse().ok());
         ob.obfs_type = params.get("obfs").cloned();
         ob.obfs_password = params.get("obfs-password").cloned();
         ob.tls = tls;
-    }))
+    })
 }
 
 fn build_tuic(
@@ -259,26 +263,26 @@ fn build_tuic(
     credential: &str,
     params: &HashMap<String, String>,
     tls: Option<TlsConfig>,
-) -> Result<Outbound> {
+) -> Outbound {
     let (uuid, password) = credential
         .split_once(':')
         .map(|(u, p)| (u.to_string(), p.to_string()))
         .unwrap_or((credential.to_string(), String::new()));
 
-    Ok(base.into_outbound(|ob| {
+    base.into_outbound(|ob| {
         ob.uuid = Some(uuid);
         ob.password = Some(password);
         ob.congestion_control = params.get("congestion_control").cloned();
         ob.udp_relay_mode = params.get("udp_relay_mode").cloned();
         ob.tls = tls;
-    }))
+    })
 }
 
-fn build_anytls(base: OutboundBase, credential: &str, tls: Option<TlsConfig>) -> Result<Outbound> {
-    Ok(base.into_outbound(|ob| {
+fn build_anytls(base: OutboundBase, credential: &str, tls: Option<TlsConfig>) -> Outbound {
+    base.into_outbound(|ob| {
         ob.password = Some(credential.to_string());
         ob.tls = tls;
-    }))
+    })
 }
 
 fn parse_vmess_link(tag: &str, rest: &str) -> Result<Outbound> {
@@ -286,8 +290,7 @@ fn parse_vmess_link(tag: &str, rest: &str) -> Result<Outbound> {
         Some(idx) => &rest[..idx],
         None => rest,
     };
-    let json_bytes = base64_decode(raw.trim_end_matches('/'))
-        .map_err(|_| AppError::Conversion("invalid vmess base64".into()))?;
+    let json_bytes = base64_decode(raw.trim_end_matches('/'));
     let json_str = String::from_utf8(json_bytes)
         .map_err(|_| AppError::Conversion("invalid vmess base64 encoding".into()))?;
     let vmess: serde_json::Value = serde_json::from_str(&json_str)
@@ -352,75 +355,79 @@ pub fn build_node_link(ob: &Outbound) -> Result<String> {
             let password = ob.password.as_deref().unwrap_or("");
             let userinfo = base64_encode(format!("{method}:{password}").as_bytes());
             Ok(format!("ss://{userinfo}@{server}:{port}#{fragment}"))
-        }
+        },
         Protocol::Vmess => {
             let uuid = ob.uuid.as_deref().unwrap_or("");
             let scy = ob.security.as_deref().unwrap_or("auto");
             let tls_enabled = ob.tls.as_ref().is_some_and(|t| t.enabled.unwrap_or(false));
-            let tls_str = if tls_enabled { "tls" } else { "" };
+            let tls_str = if tls_enabled {
+                "tls"
+            } else {
+                ""
+            };
             let json = format!(
                 r#"{{"v":"2","ps":"{tag}","add":"{server}","port":"{port}",\
                 "id":"{uuid}","aid":"0","net":"tcp","type":"none",\
                 "host":"","path":"","scy":"{scy}","tls":"{tls_str}","sni":"{sni}"}}"#
             );
             Ok(format!("vmess://{}", base64_encode(json.as_bytes())))
-        }
+        },
         Protocol::Vless => {
             let uuid = ob.uuid.as_deref().unwrap_or("");
             let security = ob.security.as_deref().unwrap_or("tls");
             let mut query = format!("type=tcp&security={security}&sni={sni}");
             if let Some(flow) = &ob.flow {
-                query.push_str(&format!("&flow={flow}"));
+                let _ = write!(query, "&flow={flow}");
             }
             Ok(format!(
                 "vless://{uuid}@{server}:{port}/?{query}#{fragment}"
             ))
-        }
+        },
         Protocol::Trojan => {
             let password = ob.password.as_deref().unwrap_or("");
             Ok(format!(
                 "trojan://{password}@{server}:{port}/?type=tcp&security=tls&sni={sni}#{fragment}"
             ))
-        }
+        },
         Protocol::Hysteria2 => {
             let password = ob.password.as_deref().unwrap_or("");
             let mut query = format!("sni={sni}");
             append_tls_insecure(&mut query, ob);
             if let Some(up) = &ob.up_mbps {
-                query.push_str(&format!("&up={up}"));
+                let _ = write!(query, "&up={up}");
             }
             if let Some(down) = &ob.down_mbps {
-                query.push_str(&format!("&down={down}"));
+                let _ = write!(query, "&down={down}");
             }
             if let Some(obfs) = &ob.obfs_type {
-                query.push_str(&format!("&obfs={obfs}"));
+                let _ = write!(query, "&obfs={obfs}");
             }
             if let Some(obfs_pwd) = &ob.obfs_password {
-                query.push_str(&format!("&obfs-password={obfs_pwd}"));
+                let _ = write!(query, "&obfs-password={obfs_pwd}");
             }
             Ok(format!(
                 "hy2://{password}@{server}:{port}/?{query}#{fragment}"
             ))
-        }
+        },
         Protocol::Tuic => {
             let uuid = ob.uuid.as_deref().unwrap_or("");
             let password = ob.password.as_deref().unwrap_or("");
             let mut query = format!("sni={sni}");
             if let Some(cc) = &ob.congestion_control {
-                query.push_str(&format!("&congestion_control={cc}"));
+                let _ = write!(query, "&congestion_control={cc}");
             }
             if let Some(urm) = &ob.udp_relay_mode {
-                query.push_str(&format!("&udp_relay_mode={urm}"));
+                let _ = write!(query, "&udp_relay_mode={urm}");
             }
             if let Some(alpn) = ob.tls.as_ref().and_then(|t| t.alpn.as_ref())
                 && !alpn.is_empty()
             {
-                query.push_str(&format!("&alpn={}", alpn.join(",")));
+                let _ = write!(query, "&alpn={}", alpn.join(","));
             }
             Ok(format!(
                 "tuic://{uuid}:{password}@{server}:{port}/?{query}#{fragment}"
             ))
-        }
+        },
         Protocol::AnyTLS => {
             let password = ob.password.as_deref().unwrap_or("");
             let mut query = format!("sni={sni}");
@@ -428,7 +435,7 @@ pub fn build_node_link(ob: &Outbound) -> Result<String> {
             Ok(format!(
                 "anytls://{password}@{server}:{port}/?{query}#{fragment}"
             ))
-        }
+        },
     }
 }
 
@@ -448,10 +455,7 @@ fn resolve_port(ob: &Outbound, tag: &str) -> Result<u16> {
                 "outbound '{tag}' has no server_port and empty server_ports"
             ))
         })?;
-        let digits: String = first_str
-            .chars()
-            .take_while(|c| c.is_ascii_digit())
-            .collect();
+        let digits: String = first_str.chars().take_while(char::is_ascii_digit).collect();
         digits.parse::<u16>().ok().ok_or_else(|| {
             AppError::Conversion(format!(
                 "outbound '{tag}' has invalid server_ports '{ports:?}'"
@@ -478,9 +482,8 @@ fn parse_query_params(query: &str) -> HashMap<String, String> {
 }
 
 fn decode_ss_credential(cred: &str) -> (String, String) {
-    base64_decode(cred)
+    String::from_utf8(base64_decode(cred))
         .ok()
-        .and_then(|bytes| String::from_utf8(bytes).ok())
         .and_then(|s| {
             s.split_once(':')
                 .map(|(m, p)| (m.to_string(), p.to_string()))
@@ -496,12 +499,12 @@ fn simple_percent_encode(s: &str) -> String {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
                 result.push(byte as char);
-            }
+            },
             _ => {
                 result.push('%');
                 result.push(HEX_TABLE[(byte >> 4) as usize] as char);
-                result.push(HEX_TABLE[(byte & 0x0F) as usize] as char);
-            }
+                result.push(HEX_TABLE[(byte & 0x0f) as usize] as char);
+            },
         }
     }
     result
@@ -517,15 +520,15 @@ fn base64_encode(data: &[u8]) -> String {
         let b2 = u32::from(*chunk.get(2).unwrap_or(&0));
         let triplet = (b0 << 16) | (b1 << 8) | b2;
 
-        result.push(BASE64_TABLE[((triplet >> 18) & 0x3F) as usize] as char);
-        result.push(BASE64_TABLE[((triplet >> 12) & 0x3F) as usize] as char);
+        result.push(BASE64_TABLE[((triplet >> 18) & 0x3f) as usize] as char);
+        result.push(BASE64_TABLE[((triplet >> 12) & 0x3f) as usize] as char);
         result.push(if chunk.len() > 1 {
-            BASE64_TABLE[((triplet >> 6) & 0x3F) as usize] as char
+            BASE64_TABLE[((triplet >> 6) & 0x3f) as usize] as char
         } else {
             '='
         });
         result.push(if chunk.len() > 2 {
-            BASE64_TABLE[(triplet & 0x3F) as usize] as char
+            BASE64_TABLE[(triplet & 0x3f) as usize] as char
         } else {
             '='
         });
@@ -533,14 +536,15 @@ fn base64_encode(data: &[u8]) -> String {
     result
 }
 
-fn base64_decode(input: &str) -> std::result::Result<Vec<u8>, ()> {
+#[allow(clippy::cast_possible_truncation)] // BASE64_TABLE has 64 entries, always fits in u8
+fn base64_decode(input: &str) -> Vec<u8> {
     let input = input.trim_end_matches('=');
     if input.is_empty() {
-        return Ok(vec![]);
+        return vec![];
     }
 
     let decode_table: [u8; 256] = {
-        let mut table = [0xFFu8; 256];
+        let mut table = [0xffu8; 256];
         for (i, &b) in BASE64_TABLE.iter().enumerate() {
             table[b as usize] = i as u8;
         }
@@ -554,25 +558,25 @@ fn base64_decode(input: &str) -> std::result::Result<Vec<u8>, ()> {
     let chunks = bytes.chunks(4);
 
     for chunk in chunks {
-        let b0 = decode_table[*chunk.first().unwrap_or(&b'A') as usize] as u32;
-        let b1 = decode_table[*chunk.get(1).unwrap_or(&b'A') as usize] as u32;
+        let b0 = u32::from(decode_table[*chunk.first().unwrap_or(&b'A') as usize]);
+        let b1 = u32::from(decode_table[*chunk.get(1).unwrap_or(&b'A') as usize]);
         let b2_val = *chunk.get(2).unwrap_or(&b'A');
         let b3_val = *chunk.get(3).unwrap_or(&b'A');
-        let b2 = decode_table[b2_val as usize] as u32;
-        let b3 = decode_table[b3_val as usize] as u32;
+        let b2 = u32::from(decode_table[b2_val as usize]);
+        let b3 = u32::from(decode_table[b3_val as usize]);
 
         let triplet = (b0 << 18) | (b1 << 12) | (b2 << 6) | b3;
 
-        result.push(((triplet >> 16) & 0xFF) as u8);
+        result.push(((triplet >> 16) & 0xff) as u8);
         if chunk.len() > 2 && b2_val != b'=' {
-            result.push(((triplet >> 8) & 0xFF) as u8);
+            result.push(((triplet >> 8) & 0xff) as u8);
         }
         if chunk.len() > 3 && b3_val != b'=' {
-            result.push((triplet & 0xFF) as u8);
+            result.push((triplet & 0xff) as u8);
         }
     }
 
-    Ok(result)
+    result
 }
 
 #[cfg(test)]
@@ -582,12 +586,12 @@ mod tests {
     #[test]
     fn roundtrip_base64() {
         let data = b"Hello, World!";
-        assert_eq!(base64_decode(&base64_encode(data)).unwrap(), data);
+        assert_eq!(base64_decode(&base64_encode(data)), data);
     }
 
     #[test]
     fn roundtrip_base64_empty() {
-        assert_eq!(base64_decode(&base64_encode(b"")).unwrap(), b"");
+        assert_eq!(base64_decode(&base64_encode(b"")), b"");
     }
 
     #[test]
@@ -595,10 +599,7 @@ mod tests {
         // Standard and URL-safe base64 should both work
         let standard = "aGVsbG8=";
         let url_safe = "aGVsbG8";
-        assert_eq!(
-            base64_decode(standard).unwrap(),
-            base64_decode(url_safe).unwrap()
-        );
+        assert_eq!(base64_decode(standard), base64_decode(url_safe));
     }
 
     #[test]
@@ -653,7 +654,8 @@ mod tests {
     fn parse_vless_link() {
         let ob = parse_node_link(
             "vl",
-            "vless://uuid123@1.2.3.4:443/?type=tcp&security=tls&sni=example.com&flow=xtls-rprx-vision",
+            "vless://uuid123@1.2.3.4:443/?type=tcp&security=tls&sni=example.com&\
+             flow=xtls-rprx-vision",
         )
         .unwrap();
         assert_eq!(ob.outbound_type, "vless");
@@ -691,7 +693,8 @@ mod tests {
     fn parse_tuic_link() {
         let ob = parse_node_link(
             "tuic-node",
-            "tuic://uuid-abc:password123@1.2.3.4:443/?congestion_control=bbr&udp_relay_mode=quic&sni=example.com&alpn=h3",
+            "tuic://uuid-abc:password123@1.2.3.4:443/?congestion_control=bbr&udp_relay_mode=quic&\
+             sni=example.com&alpn=h3",
         )
         .unwrap();
         assert_eq!(ob.outbound_type, "tuic");
@@ -770,7 +773,8 @@ mod tests {
     fn hy2_link_with_obfs() {
         let ob = parse_node_link(
             "hy2-obfs",
-            "hy2://pass@1.2.3.4:443/?sni=example.com&obfs=salamander&obfs-password=secret&up=100&down=200",
+            "hy2://pass@1.2.3.4:443/?sni=example.com&obfs=salamander&obfs-password=secret&up=100&\
+             down=200",
         )
         .unwrap();
         assert_eq!(ob.obfs_type.as_deref(), Some("salamander"));

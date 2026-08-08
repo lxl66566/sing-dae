@@ -4,6 +4,7 @@ pub const DNS_TYPES_WITH_PATH: &[&str] = &["https", "h3", "http3"];
 
 pub const DNS_TYPES_VIRTUAL: &[&str] = &["local", "hosts", "fakeip"];
 
+#[must_use]
 pub fn default_port(dns_type: &str) -> u16 {
     match dns_type {
         "https" | "h3" | "http3" => 443,
@@ -12,10 +13,12 @@ pub fn default_port(dns_type: &str) -> u16 {
     }
 }
 
+#[must_use]
 pub fn is_virtual_dns_type(dns_type: &str) -> bool {
     DNS_TYPES_VIRTUAL.contains(&dns_type)
 }
 
+#[must_use]
 pub fn split_host_port(input: &str) -> (&str, Option<&str>) {
     if let Some(bracket_end) = input.find(']') {
         let host = &input[..=bracket_end];
@@ -32,6 +35,7 @@ pub fn split_host_port(input: &str) -> (&str, Option<&str>) {
     }
 }
 
+#[must_use]
 pub fn has_explicit_port(host: &str) -> bool {
     if host.starts_with('[') {
         return host
@@ -52,6 +56,7 @@ fn normalize_dns_type(scheme: &str) -> &str {
     }
 }
 
+#[must_use]
 pub fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
     let Some((scheme, rest)) = url.split_once("://") else {
         return DnsServer {
@@ -68,7 +73,7 @@ pub fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
         (s, Some(pos)) if DNS_TYPES_WITH_PATH.contains(&s) => {
             let (h, p) = rest.split_at(pos);
             (h, Some(p.to_string()))
-        }
+        },
         _ => (rest, None),
     };
 
@@ -83,6 +88,7 @@ pub fn parse_dns_upstream(tag: &str, url: &str) -> DnsServer {
     }
 }
 
+#[must_use]
 pub fn build_dae_upstream_url(srv: &DnsServer) -> Option<String> {
     let dns_type = srv.dns_type.as_deref()?;
     if is_virtual_dns_type(dns_type) {
@@ -109,6 +115,7 @@ pub fn build_dae_upstream_url(srv: &DnsServer) -> Option<String> {
     Some(url)
 }
 
+#[must_use]
 pub fn extract_paren_args<'a>(s: &'a str, func: &str) -> Option<&'a str> {
     let s = s.trim();
     if !s.starts_with(func) || !s.contains('(') {
@@ -122,6 +129,7 @@ pub fn extract_paren_args<'a>(s: &'a str, func: &str) -> Option<&'a str> {
     Some(s[start + 1..end].trim())
 }
 
+#[must_use]
 pub fn parse_comma_args(s: &str) -> Vec<String> {
     s.split(',')
         .map(|arg| clean_quoted(arg.trim()))
@@ -129,6 +137,7 @@ pub fn parse_comma_args(s: &str) -> Vec<String> {
         .collect()
 }
 
+#[must_use]
 pub fn clean_quoted(s: &str) -> String {
     let trimmed = s.trim();
     if (trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2)

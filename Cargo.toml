@@ -3,19 +3,16 @@ authors     = ["lxl66566"]
 categories  = ["command-line-utilities"]
 description = "Config converter between dae and sing-box"
 edition     = "2024"
-exclude     = ["frontend/", "AGENTS.md"]
-keywords    = ["dae", "sing-box", "proxy", "converter", "wasm"]
+exclude     = ["AGENTS.md", "frontend/"]
+keywords    = ["converter", "dae", "proxy", "sing-box", "wasm"]
 license     = "Apache-2.0"
 name        = "sing-dae"
 readme      = "README.md"
 repository  = "https://github.com/lxl66566/sing-dae"
 version     = "0.1.1"
 
-
-[features]
-comment-defaults = []
-default          = ["comment-defaults"]
-wasm             = ["wasm-bindgen"]
+[lib]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 pest         = "2"
@@ -29,11 +26,30 @@ wasm-bindgen = { version = "0.2", optional = true }
 [dev-dependencies]
 pretty_assertions = "1"
 
-[lib]
-crate-type = ["cdylib", "rlib"]
+[features]
+default          = ["comment-defaults"]
+comment-defaults = []
+wasm             = ["wasm-bindgen"]
+
+[lints.clippy]
+all                     = { level = "warn", priority = -1 }
+cargo                   = { level = "warn", priority = -1 }
+doc_markdown            = "allow"
+missing_errors_doc      = "allow"
+missing_panics_doc      = "allow"
+multiple_crate_versions = "allow"
+pedantic                = { level = "warn", priority = -1 }
+wildcard_imports        = "allow"
+
+[lints.rust]
+unsafe_code           = "allow"
+unused_qualifications = "warn"
+
+[profile.dev]
+incremental = true  # Compile your binary in smaller steps.
 
 [profile.release]
-lto       = true
 opt-level = "s"
-panic     = "abort"
 strip     = true
+lto       = true
+panic     = "abort"

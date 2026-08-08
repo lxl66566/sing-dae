@@ -24,7 +24,8 @@ fn parse_fixture_dae() {
 #[test]
 fn parse_global_section() {
     let config = parser::parse(
-        "global {\n    tproxy_port: 12345\n    log_level: info\n    dial_mode: domain\n    allow_insecure: false\n}",
+        "global {\n    tproxy_port: 12345\n    log_level: info\n    dial_mode: domain\n    \
+         allow_insecure: false\n}",
     )
     .expect("parse failed");
 
@@ -49,7 +50,7 @@ fn parse_node_section() {
         ast::Entry::Tagged { key, value } => {
             assert_eq!(key, "my-node");
             assert!(value.starts_with("hy2://"));
-        }
+        },
         ast::Entry::Untagged(_) => panic!("expected tagged entry"),
     }
 }
@@ -57,7 +58,8 @@ fn parse_node_section() {
 #[test]
 fn parse_group_section() {
     let config = parser::parse(
-        "group {\n    proxy {\n        policy: min_moving_avg\n    }\n    no_hk {\n        filter: !name(regex: '^hk')\n        policy: min_moving_avg\n    }\n}",
+        "group {\n    proxy {\n        policy: min_moving_avg\n    }\n    no_hk {\n        \
+         filter: !name(regex: '^hk')\n        policy: min_moving_avg\n    }\n}",
     )
     .expect("parse failed");
 
@@ -74,10 +76,12 @@ fn parse_group_section() {
 }
 #[test]
 fn parse_routing_section() {
-    let config = parser::parse(
-        "routing {\n    pname(NetworkManager) -> must_direct\n    dip(geoip:private) -> direct\n    domain(geosite:cn) -> direct\n    fallback: proxy\n}",
-    )
-    .expect("parse failed");
+    let config =
+        parser::parse(
+            "routing {\n    pname(NetworkManager) -> must_direct\n    dip(geoip:private) -> \
+             direct\n    domain(geosite:cn) -> direct\n    fallback: proxy\n}",
+        )
+        .expect("parse failed");
 
     assert_eq!(config.routing.rules.len(), 3);
     assert_eq!(config.routing.fallback.as_deref(), Some("proxy"));
@@ -87,10 +91,13 @@ fn parse_routing_section() {
 
 #[test]
 fn parse_dns_section() {
-    let config = parser::parse(
-        "dns {\n    ipversion_prefer: 4\n    upstream {\n        alidns: 'udp://223.5.5.5:53'\n    }\n    routing {\n        request {\n            qname(geosite:cn) -> alidns\n            fallback: cloudflare\n        }\n    }\n}",
-    )
-    .expect("parse failed");
+    let config =
+        parser::parse(
+            "dns {\n    ipversion_prefer: 4\n    upstream {\n        alidns: \
+             'udp://223.5.5.5:53'\n    }\n    routing {\n        request {\n            \
+             qname(geosite:cn) -> alidns\n            fallback: cloudflare\n        }\n    }\n}",
+        )
+        .expect("parse failed");
 
     assert_eq!(config.dns.entries.len(), 1);
     assert_eq!(config.dns.upstream.len(), 1);

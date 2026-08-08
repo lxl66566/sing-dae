@@ -4,6 +4,7 @@
 /// - multi-line comments `/* ... */`
 /// - trailing commas before `]` or `}`
 /// - string literals are preserved (comments inside strings are not stripped)
+#[must_use]
 pub fn strip_jsonc(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let chars: Vec<char> = input.chars().collect();
@@ -32,13 +33,13 @@ pub fn strip_jsonc(input: &str) -> String {
                     }
                     i += 1;
                 }
-            }
+            },
             '/' if i + 1 < len && chars[i + 1] == '/' => {
                 i += 2;
                 while i < len && chars[i] != '\n' {
                     i += 1;
                 }
-            }
+            },
             '/' if i + 1 < len && chars[i + 1] == '*' => {
                 i += 2;
                 while i + 1 < len && !(chars[i] == '*' && chars[i + 1] == '/') {
@@ -47,11 +48,11 @@ pub fn strip_jsonc(input: &str) -> String {
                 if i + 1 < len {
                     i += 2;
                 }
-            }
+            },
             c => {
                 out.push(c);
                 i += 1;
-            }
+            },
         }
     }
 

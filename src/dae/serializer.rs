@@ -21,10 +21,10 @@ pub fn serialize(config: &ast::DaeConfig) -> String {
             match entry {
                 ast::Entry::Tagged { key, value } => {
                     writeln!(out, "    {key}: {}", format_value(value)).unwrap();
-                }
+                },
                 ast::Entry::Untagged(value) => {
                     writeln!(out, "    {}", format_value(value)).unwrap();
-                }
+                },
             }
         }
         out.push_str("}\n\n");
@@ -36,10 +36,10 @@ pub fn serialize(config: &ast::DaeConfig) -> String {
             match entry {
                 ast::Entry::Tagged { key, value } => {
                     writeln!(out, "    {key}: {}", format_value(value)).unwrap();
-                }
+                },
                 ast::Entry::Untagged(value) => {
                     writeln!(out, "    {}", format_value(value)).unwrap();
-                }
+                },
             }
         }
         out.push_str("}\n\n");

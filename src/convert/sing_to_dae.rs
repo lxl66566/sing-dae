@@ -403,7 +403,7 @@ fn collect_sip_args(rule: &crate::singbox::config::RouteRule) -> Vec<String> {
 
 /// Combine sing-box port + port_range lists into dae dport/sport arg strings.
 fn collect_port_args(ports: &[u16], ranges: &[String]) -> Vec<String> {
-    let mut args: Vec<String> = ports.iter().map(|p| p.to_string()).collect();
+    let mut args: Vec<String> = ports.iter().map(ToString::to_string).collect();
     args.extend_from_slice(ranges);
     args
 }
@@ -459,7 +459,7 @@ mod tests {
                 assert!(value.starts_with("hy2://pass123@1.2.3.4:443/"));
                 assert!(value.contains("sni=example.com"));
                 assert!(value.ends_with("#my-hy2"));
-            }
+            },
             Entry::Untagged(_) => panic!("expected tagged entry"),
         }
     }
@@ -489,7 +489,7 @@ mod tests {
             Entry::Tagged { key: _, value } => {
                 assert!(value.starts_with("hy2://passwd@rfc.852456.xyz:65501/"));
                 assert!(value.contains("sni=rfc.852456.xyz"));
-            }
+            },
             Entry::Untagged(_) => panic!("expected tagged entry"),
         }
     }
@@ -520,7 +520,7 @@ mod tests {
                 assert!(value.contains("type=tcp"));
                 assert!(value.contains("security=tls"));
                 assert!(value.contains("sni=trojan.example.com"));
-            }
+            },
             Entry::Untagged(_) => panic!("expected tagged entry"),
         }
     }
@@ -528,14 +528,11 @@ mod tests {
     #[test]
     fn direct_outbound_skipped() {
         let sing = SingBoxConfig {
-            outbounds: vec![
-                make_hy2_outbound(),
-                Outbound {
-                    outbound_type: "direct".into(),
-                    tag: Some("direct".into()),
-                    ..Default::default()
-                },
-            ],
+            outbounds: vec![make_hy2_outbound(), Outbound {
+                outbound_type: "direct".into(),
+                tag: Some("direct".into()),
+                ..Default::default()
+            }],
             ..SingBoxConfig::default()
         };
         let dae = convert(&sing).unwrap();
@@ -549,15 +546,12 @@ mod tests {
     #[test]
     fn selector_becomes_group() {
         let sing = SingBoxConfig {
-            outbounds: vec![
-                make_hy2_outbound(),
-                Outbound {
-                    outbound_type: "selector".into(),
-                    tag: Some("my-group".into()),
-                    outbounds: Some(vec!["my-hy2".into()]),
-                    ..Default::default()
-                },
-            ],
+            outbounds: vec![make_hy2_outbound(), Outbound {
+                outbound_type: "selector".into(),
+                tag: Some("my-group".into()),
+                outbounds: Some(vec!["my-hy2".into()]),
+                ..Default::default()
+            }],
             ..SingBoxConfig::default()
         };
         let dae = convert(&sing).unwrap();

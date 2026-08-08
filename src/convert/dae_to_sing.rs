@@ -24,7 +24,7 @@ const BUILTIN_OUTBOUNDS: [&str; 3] = ["direct", "must_direct", "block"];
 pub fn convert(dae: &DaeConfig, opts: &ConvertOptions) -> Result<SingBoxConfig> {
     let log = build_log(dae);
 
-    let node_outbounds = build_node_outbounds(dae)?;
+    let node_outbounds = build_node_outbounds(dae);
     let node_tags: Vec<String> = node_outbounds
         .iter()
         .filter_map(|ob| ob.tag.as_deref())
@@ -93,10 +93,8 @@ fn build_log(dae: &DaeConfig) -> Option<Log> {
 }
 
 /// Apply global TLS settings from the `global` section to all proxy outbounds:
-/// - `tls_implementation: utls` + `utls_imitate: <fingerprint>` → TLS utls
-///   block
-/// - `allow_insecure: true` → TLS insecure (only if not explicitly set
-///   per-node)
+/// - `tls_implementation: utls` + `utls_imitate: <fingerprint>` → TLS utls block
+/// - `allow_insecure: true` → TLS insecure (only if not explicitly set per-node)
 fn apply_global_tls(dae: &DaeConfig, outbounds: &mut [Outbound]) {
     let utls_imitate = dae
         .global
@@ -154,19 +152,17 @@ fn build_default_experimental() -> serde_json::Value {
 
 // ---- Nodes -> Outbounds ----
 
-fn build_node_outbounds(dae: &DaeConfig) -> Result<Vec<Outbound>> {
-    let outbounds: Vec<Outbound> = dae
-        .nodes
+fn build_node_outbounds(dae: &DaeConfig) -> Vec<Outbound> {
+    dae.nodes
         .iter()
         .filter_map(|entry| match entry {
             Entry::Tagged { key, value } => protocol::parse_node_link(key, value).ok(),
             Entry::Untagged(val) => {
                 let tag = format!("untagged_{}", &val[..val.len().min(8)]);
                 protocol::parse_node_link(&tag, val).ok()
-            }
+            },
         })
-        .collect();
-    Ok(outbounds)
+        .collect()
 }
 
 // ---- Groups -> Selector/UrlTest Outbounds ----
@@ -270,23 +266,22 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
         .iter()
         .any(|s| is_domain_address(s.server.as_deref()))
     {
-        let resolver_tag = match servers.iter().find_map(|s| {
+        let resolver_tag = if let Some(tag) = servers.iter().find_map(|s| {
             if s.dns_type.as_deref() == Some("local") {
                 s.tag.clone()
             } else {
                 None
             }
         }) {
-            Some(tag) => tag,
-            None => {
-                let tag = "dns-local".to_string();
-                servers.push(DnsServer {
-                    dns_type: Some("local".into()),
-                    tag: Some(tag.clone()),
-                    ..Default::default()
-                });
-                tag
-            }
+            tag
+        } else {
+            let tag = "dns-local".to_string();
+            servers.push(DnsServer {
+                dns_type: Some("local".into()),
+                tag: Some(tag.clone()),
+                ..Default::default()
+            });
+            tag
         };
         for server in &mut servers {
             if is_domain_address(server.server.as_deref()) && server.domain_resolver.is_none() {
@@ -380,7 +375,7 @@ fn is_ip_address(addr: Option<&str>) -> bool {
         Some(a) => {
             let trimmed = a.trim_start_matches('[').trim_end_matches(']');
             IpAddr::from_str(trimmed).is_ok()
-        }
+        },
         None => false,
     }
 }
@@ -521,7 +516,7 @@ fn resolve_domain_resolver(dns: &mut Option<Dns>, outbounds: &[Outbound]) -> Opt
                 final_dns: None,
                 ..Default::default()
             });
-        }
+        },
     }
 
     Some(tag)
@@ -653,16 +648,16 @@ fn apply_route_function(rule: &mut RouteRule, name: &str, args: &[String], negat
     match name {
         "domain" => {
             categorize_domain_args_into(args, rule);
-        }
+        },
         "dip" | "ip" => {
             categorize_dip_args_into(args, rule);
-        }
+        },
         "sip" => {
             categorize_sip_args_into(args, rule);
-        }
+        },
         "pname" => {
             rule.process_name.extend(args.iter().cloned());
-        }
+        },
         "l4proto" => {
             for a in args {
                 let proto = a.trim().to_lowercase();
@@ -670,7 +665,7 @@ fn apply_route_function(rule: &mut RouteRule, name: &str, args: &[String], negat
                     rule.network.push(proto);
                 }
             }
-        }
+        },
         "dport" | "port" => {
             for a in args {
                 if let Some((lo, hi)) = parse_port_range(a) {
@@ -681,7 +676,7 @@ fn apply_route_function(rule: &mut RouteRule, name: &str, args: &[String], negat
                     }
                 }
             }
-        }
+        },
         "sport" => {
             for a in args {
                 if let Some((lo, hi)) = parse_port_range(a) {
@@ -692,17 +687,17 @@ fn apply_route_function(rule: &mut RouteRule, name: &str, args: &[String], negat
                     }
                 }
             }
-        }
+        },
         "ipversion" => {
             if let Some(a) = args.first() {
                 match a.trim() {
                     "4" => rule.ip_version = Some(4),
                     "6" => rule.ip_version = Some(6),
-                    _ => {}
+                    _ => {},
                 }
             }
-        }
-        _ => {}
+        },
+        _ => {},
     }
 }
 
@@ -1485,9 +1480,9 @@ mod tests {
         let dae = DaeConfig {
             routing: RoutingSection {
                 rules: vec![RoutingRule {
-                    condition:
-                        "domain(keyword:ad, regex:'\\.cn$', full:exact.com, suffix:co.uk, geosite:cn)"
-                            .into(),
+                    condition: "domain(keyword:ad, regex:'\\.cn$', full:exact.com, suffix:co.uk, \
+                                geosite:cn)"
+                        .into(),
                     target: "direct".into(),
                 }],
                 fallback: None,
