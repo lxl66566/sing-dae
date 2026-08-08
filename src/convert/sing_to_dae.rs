@@ -109,11 +109,33 @@ fn build_groups(sing: &SingBoxConfig) -> Vec<GroupDef> {
                 }]
             };
 
+            let mut extra: Vec<KeyValue> = Vec::new();
+            if ob.outbound_type == "urltest" {
+                if let Some(url) = &ob.url {
+                    extra.push(KeyValue {
+                        key: "tcp_check_url".into(),
+                        value: url.clone(),
+                    });
+                }
+                if let Some(interval) = &ob.interval {
+                    extra.push(KeyValue {
+                        key: "check_interval".into(),
+                        value: interval.clone(),
+                    });
+                }
+                if let Some(tol) = ob.tolerance {
+                    extra.push(KeyValue {
+                        key: "check_tolerance".into(),
+                        value: format!("{tol}ms"),
+                    });
+                }
+            }
+
             GroupDef {
                 name: ob.tag.clone().unwrap_or_default(),
                 filters,
                 policy,
-                extra: vec![],
+                extra,
             }
         })
         .collect()
@@ -152,7 +174,7 @@ fn build_dns(sing: &SingBoxConfig) -> DnsSection {
         if let Some(final_dns) = &sing_dns.final_dns
             && valid_upstreams.contains(final_dns.as_str())
         {
-            dns.fallback = Some(final_dns.clone());
+            dns.request_fallback = Some(final_dns.clone());
         }
     }
 
@@ -171,12 +193,14 @@ fn convert_dns_rule(
         || !rule.domain_suffix.is_empty()
         || !rule.domain_keyword.is_empty()
         || !rule.domain_regex.is_empty()
-        || !rule.rule_set.is_empty();
+        || rule.rule_set.iter().any(|rs| rs.starts_with("geosite-"));
+    let has_query_type = !rule.query_type.is_empty();
+
+    if !has_domain && !has_query_type {
+        return None;
+    }
 
     let target = if rule.action.as_deref() == Some("predefined") {
-        if !has_domain {
-            return None;
-        }
         "reject".to_string()
     } else {
         let server = rule.server.as_deref()?;
@@ -205,12 +229,27 @@ fn convert_dns_rule(
         }
     }
 
-    if qname_args.is_empty() {
+    let mut conditions: Vec<String> = Vec::new();
+    if !qname_args.is_empty() {
+        conditions.push(format!("qname({})", qname_args.join(", ")));
+    }
+    if has_query_type {
+        let qt_args: Vec<String> = rule
+            .query_type
+            .iter()
+            .filter_map(|v| v.as_str().map(str::to_lowercase))
+            .collect();
+        if !qt_args.is_empty() {
+            conditions.push(format!("qtype({})", qt_args.join(", ")));
+        }
+    }
+
+    if conditions.is_empty() {
         return None;
     }
 
     Some(RoutingRule {
-        condition: format!("qname({})", qname_args.join(", ")),
+        condition: conditions.join(" && "),
         target,
     })
 }
@@ -253,32 +292,54 @@ fn convert_route_rule(rule: &crate::singbox::config::RouteRule) -> Vec<RoutingRu
     }
 
     let target = resolve_rule_target(rule);
-    let mut results = Vec::new();
+
+    let mut conditions: Vec<String> = Vec::new();
 
     let domain_args = collect_domain_args(rule);
     if !domain_args.is_empty() {
-        results.push(RoutingRule {
-            condition: format!("domain({})", domain_args.join(", ")),
-            target: target.clone(),
-        });
+        conditions.push(format!("domain({})", domain_args.join(", ")));
     }
 
     let dip_args = collect_dip_args(rule);
     if !dip_args.is_empty() {
-        results.push(RoutingRule {
-            condition: format!("dip({})", dip_args.join(", ")),
-            target: target.clone(),
-        });
+        conditions.push(format!("dip({})", dip_args.join(", ")));
+    }
+
+    let sip_args = collect_sip_args(rule);
+    if !sip_args.is_empty() {
+        conditions.push(format!("sip({})", sip_args.join(", ")));
     }
 
     if !rule.process_name.is_empty() {
-        results.push(RoutingRule {
-            condition: format!("pname({})", rule.process_name.join(", ")),
-            target,
-        });
+        conditions.push(format!("pname({})", rule.process_name.join(", ")));
     }
 
-    results
+    if !rule.network.is_empty() {
+        conditions.push(format!("l4proto({})", rule.network.join(", ")));
+    }
+
+    let dport_args = collect_port_args(&rule.port, &rule.port_range);
+    if !dport_args.is_empty() {
+        conditions.push(format!("dport({})", dport_args.join(", ")));
+    }
+
+    let sport_args = collect_port_args(&rule.source_port, &rule.source_port_range);
+    if !sport_args.is_empty() {
+        conditions.push(format!("sport({})", sport_args.join(", ")));
+    }
+
+    if let Some(v) = rule.ip_version {
+        conditions.push(format!("ipversion({v})"));
+    }
+
+    if conditions.is_empty() {
+        return vec![];
+    }
+
+    vec![RoutingRule {
+        condition: conditions.join(" && "),
+        target,
+    }]
 }
 
 fn resolve_rule_target(rule: &crate::singbox::config::RouteRule) -> String {
@@ -297,8 +358,18 @@ fn map_routing_target(outbound: &str) -> String {
 
 fn collect_domain_args(rule: &crate::singbox::config::RouteRule) -> Vec<String> {
     let mut args = Vec::new();
-    args.extend_from_slice(&rule.domain_suffix);
-    args.extend_from_slice(&rule.domain);
+    for s in &rule.domain_suffix {
+        args.push(s.clone());
+    }
+    for s in &rule.domain {
+        args.push(format!("full:{s}"));
+    }
+    for s in &rule.domain_keyword {
+        args.push(format!("keyword:{s}"));
+    }
+    for s in &rule.domain_regex {
+        args.push(format!("regex:{s}"));
+    }
     for rs in &rule.rule_set {
         if let Some(name) = rs.strip_prefix("geosite-") {
             args.push(format!("geosite:{name}"));
@@ -321,6 +392,22 @@ fn collect_dip_args(rule: &crate::singbox::config::RouteRule) -> Vec<String> {
     args
 }
 
+fn collect_sip_args(rule: &crate::singbox::config::RouteRule) -> Vec<String> {
+    let mut args = Vec::new();
+    if rule.source_ip_is_private == Some(true) {
+        args.push("geoip:private".to_string());
+    }
+    args.extend_from_slice(&rule.source_ip_cidr);
+    args
+}
+
+/// Combine sing-box port + port_range lists into dae dport/sport arg strings.
+fn collect_port_args(ports: &[u16], ranges: &[String]) -> Vec<String> {
+    let mut args: Vec<String> = ports.iter().map(|p| p.to_string()).collect();
+    args.extend_from_slice(ranges);
+    args
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,8 +423,7 @@ mod tests {
             tls: Some(TlsConfig {
                 enabled: Some(true),
                 server_name: Some("example.com".into()),
-                insecure: None,
-                alpn: None,
+                ..Default::default()
             }),
             ..Default::default()
         }
@@ -348,7 +434,7 @@ mod tests {
         let sing = SingBoxConfig {
             log: Some(Log {
                 level: Some("debug".into()),
-                timestamp: None,
+                ..Default::default()
             }),
             ..SingBoxConfig::default()
         };
@@ -391,8 +477,7 @@ mod tests {
                 tls: Some(TlsConfig {
                     enabled: Some(true),
                     server_name: Some("rfc.852456.xyz".into()),
-                    insecure: None,
-                    alpn: None,
+                    ..Default::default()
                 }),
                 ..Default::default()
             }],
@@ -421,8 +506,7 @@ mod tests {
                 tls: Some(TlsConfig {
                     enabled: Some(true),
                     server_name: Some("trojan.example.com".into()),
-                    insecure: None,
-                    alpn: None,
+                    ..Default::default()
                 }),
                 ..Default::default()
             }],
@@ -529,7 +613,7 @@ mod tests {
         assert_eq!(dae.dns.upstream[0].value, "udp://223.5.5.5:53");
         assert_eq!(dae.dns.upstream[1].value, "tcp+udp://dns.google.com:53");
 
-        assert_eq!(dae.dns.fallback.as_deref(), Some("remote"));
+        assert_eq!(dae.dns.request_fallback.as_deref(), Some("remote"));
     }
 
     #[test]
@@ -783,7 +867,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_domain_and_ip_conditions_split() {
+    fn mixed_domain_and_ip_conditions_combined() {
         let sing = SingBoxConfig {
             route: Some(Route {
                 rules: vec![RouteRule {
@@ -797,11 +881,13 @@ mod tests {
             ..SingBoxConfig::default()
         };
         let dae = convert(&sing).unwrap();
-        assert_eq!(dae.routing.rules.len(), 2);
-        assert_eq!(dae.routing.rules[0].condition, "domain(example.com)");
-        assert_eq!(dae.routing.rules[1].condition, "dip(10.0.0.0/8)");
+        // sing-box default rule is AND of all conditions → dae `&&`
+        assert_eq!(dae.routing.rules.len(), 1);
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "domain(example.com) && dip(10.0.0.0/8)"
+        );
         assert_eq!(dae.routing.rules[0].target, "direct");
-        assert_eq!(dae.routing.rules[1].target, "direct");
     }
 
     #[test]
@@ -849,9 +935,11 @@ mod tests {
             ..SingBoxConfig::default()
         };
         let dae = convert(&sing).unwrap();
-        assert_eq!(dae.routing.rules.len(), 2);
-        assert_eq!(dae.routing.rules[0].condition, "domain(geosite:cn)");
-        assert_eq!(dae.routing.rules[1].condition, "dip(geoip:cn)");
+        assert_eq!(dae.routing.rules.len(), 1);
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "domain(geosite:cn) && dip(geoip:cn)"
+        );
     }
 
     #[test]
@@ -1021,7 +1109,10 @@ mod tests {
         };
         let dae = convert(&sing).unwrap();
         assert_eq!(dae.routing.rules.len(), 1);
-        assert_eq!(dae.routing.rules[0].condition, "domain(google.com)");
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "domain(google.com, keyword:google)"
+        );
     }
 
     #[test]
@@ -1104,5 +1195,199 @@ mod tests {
         };
         let dae = convert(&sing).unwrap();
         assert_eq!(dae.dns.upstream[0].value, "udp://8.8.8.8:5353");
+    }
+
+    #[test]
+    fn route_source_ip_to_sip() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    outbound: Some("direct".into()),
+                    source_ip_cidr: vec!["192.168.0.0/16".into()],
+                    source_ip_is_private: Some(true),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.routing.rules.len(), 1);
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "sip(geoip:private, 192.168.0.0/16)"
+        );
+    }
+
+    #[test]
+    fn route_network_to_l4proto() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    outbound: Some("direct".into()),
+                    network: vec!["udp".into()],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.routing.rules[0].condition, "l4proto(udp)");
+    }
+
+    #[test]
+    fn route_port_to_dport() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    outbound: Some("direct".into()),
+                    port: vec![80, 443],
+                    port_range: vec!["10080-30000".into()],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "dport(80, 443, 10080-30000)"
+        );
+    }
+
+    #[test]
+    fn route_source_port_to_sport() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    outbound: Some("direct".into()),
+                    source_port: vec![53],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.routing.rules[0].condition, "sport(53)");
+    }
+
+    #[test]
+    fn route_ip_version_to_ipversion() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    outbound: Some("direct".into()),
+                    ip_version: Some(4),
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.routing.rules[0].condition, "ipversion(4)");
+    }
+
+    #[test]
+    fn route_domain_exact_and_keyword_combined() {
+        let sing = SingBoxConfig {
+            route: Some(Route {
+                rules: vec![RouteRule {
+                    outbound: Some("proxy".into()),
+                    domain: vec!["exact.com".into()],
+                    domain_keyword: vec!["ad".into()],
+                    domain_regex: vec!["\\.cn$".into()],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        assert_eq!(dae.routing.rules.len(), 1);
+        assert_eq!(
+            dae.routing.rules[0].condition,
+            "domain(full:exact.com, keyword:ad, regex:\\.cn$)"
+        );
+    }
+
+    #[test]
+    fn dns_query_type_to_qtype() {
+        let sing = SingBoxConfig {
+            dns: Some(Dns {
+                servers: vec![DnsServer {
+                    tag: Some("mydns".into()),
+                    dns_type: Some("udp".into()),
+                    server: Some("1.1.1.1".into()),
+                    ..Default::default()
+                }],
+                rules: vec![DnsRule {
+                    server: Some("mydns".into()),
+                    query_type: vec![serde_json::json!("A"), serde_json::json!("AAAA")],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        let rule = &dae.dns.request_rules[0];
+        assert_eq!(rule.condition, "qtype(a, aaaa)");
+        assert_eq!(rule.target, "mydns");
+    }
+
+    #[test]
+    fn dns_predefined_qtype_to_reject() {
+        let sing = SingBoxConfig {
+            dns: Some(Dns {
+                rules: vec![DnsRule {
+                    action: Some("predefined".into()),
+                    query_type: vec![serde_json::json!("HTTPS")],
+                    ..Default::default()
+                }],
+                ..Default::default()
+            }),
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        let rule = &dae.dns.request_rules[0];
+        assert_eq!(rule.condition, "qtype(https)");
+        assert_eq!(rule.target, "reject");
+    }
+
+    #[test]
+    fn urltest_url_interval_to_group_extra() {
+        let sing = SingBoxConfig {
+            outbounds: vec![Outbound {
+                outbound_type: "urltest".into(),
+                tag: Some("auto".into()),
+                outbounds: Some(vec!["a".into()]),
+                url: Some("http://test.example".into()),
+                interval: Some("5m".into()),
+                tolerance: Some(50),
+                ..Default::default()
+            }],
+            ..SingBoxConfig::default()
+        };
+        let dae = convert(&sing).unwrap();
+        let g = &dae.groups[0];
+        assert_eq!(g.name, "auto");
+        let url_kv = g.extra.iter().find(|kv| kv.key == "tcp_check_url").unwrap();
+        assert_eq!(url_kv.value, "http://test.example");
+        let int_kv = g
+            .extra
+            .iter()
+            .find(|kv| kv.key == "check_interval")
+            .unwrap();
+        assert_eq!(int_kv.value, "5m");
+        let tol_kv = g
+            .extra
+            .iter()
+            .find(|kv| kv.key == "check_tolerance")
+            .unwrap();
+        assert_eq!(tol_kv.value, "50ms");
     }
 }

@@ -85,7 +85,9 @@ fn serialize_dns(dns: &ast::DnsSection, out: &mut String) {
     let has_content = !dns.entries.is_empty()
         || !dns.upstream.is_empty()
         || !dns.request_rules.is_empty()
-        || !dns.response_rules.is_empty();
+        || !dns.response_rules.is_empty()
+        || dns.request_fallback.is_some()
+        || dns.response_fallback.is_some();
 
     if !has_content {
         return;
@@ -105,24 +107,31 @@ fn serialize_dns(dns: &ast::DnsSection, out: &mut String) {
         out.push_str("    }\n");
     }
 
-    if !dns.request_rules.is_empty() || !dns.response_rules.is_empty() {
+    if !dns.request_rules.is_empty()
+        || !dns.response_rules.is_empty()
+        || dns.request_fallback.is_some()
+        || dns.response_fallback.is_some()
+    {
         out.push_str("    routing {\n");
 
-        if !dns.request_rules.is_empty() || dns.fallback.is_some() {
+        if !dns.request_rules.is_empty() || dns.request_fallback.is_some() {
             out.push_str("        request {\n");
             for rule in &dns.request_rules {
                 writeln!(out, "            {} -> {}", rule.condition, rule.target).unwrap();
             }
-            if let Some(ref fb) = dns.fallback {
+            if let Some(ref fb) = dns.request_fallback {
                 writeln!(out, "            fallback: {fb}").unwrap();
             }
             out.push_str("        }\n");
         }
 
-        if !dns.response_rules.is_empty() {
+        if !dns.response_rules.is_empty() || dns.response_fallback.is_some() {
             out.push_str("        response {\n");
             for rule in &dns.response_rules {
                 writeln!(out, "            {} -> {}", rule.condition, rule.target).unwrap();
+            }
+            if let Some(ref fb) = dns.response_fallback {
+                writeln!(out, "            fallback: {fb}").unwrap();
             }
             out.push_str("        }\n");
         }

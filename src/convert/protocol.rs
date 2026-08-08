@@ -200,6 +200,7 @@ fn build_tls(
         server_name: sni,
         insecure,
         alpn,
+        ..Default::default()
     })
 }
 
@@ -309,8 +310,7 @@ fn parse_vmess_link(tag: &str, rest: &str) -> Result<Outbound> {
         Some(TlsConfig {
             enabled: Some(tls_enabled),
             server_name: sni,
-            insecure: None,
-            alpn: None,
+            ..Default::default()
         })
     } else {
         None
@@ -731,8 +731,8 @@ mod tests {
             tls: Some(TlsConfig {
                 enabled: Some(true),
                 server_name: Some("example.com".into()),
-                insecure: None,
                 alpn: Some(vec!["h3".into()]),
+                ..Default::default()
             }),
             ..Default::default()
         };
@@ -756,8 +756,7 @@ mod tests {
             tls: Some(TlsConfig {
                 enabled: Some(true),
                 server_name: Some("example.com".into()),
-                insecure: None,
-                alpn: None,
+                ..Default::default()
             }),
             ..Default::default()
         };

@@ -104,6 +104,8 @@ fn is_empty_config(config: &DaeConfig) -> bool {
         && config.dns.upstream.is_empty()
         && config.dns.request_rules.is_empty()
         && config.dns.response_rules.is_empty()
+        && config.dns.request_fallback.is_none()
+        && config.dns.response_fallback.is_none()
         && config.groups.is_empty()
         && config.routing.rules.is_empty()
         && config.routing.fallback.is_none()
@@ -142,8 +144,13 @@ fn merge_entries(base: &mut Vec<Entry>, overrides: &[Entry]) {
 fn merge_dns_section(base: &mut DnsSection, overrides: &DnsSection) {
     merge_key_values(&mut base.entries, &overrides.entries);
     merge_key_values(&mut base.upstream, &overrides.upstream);
-    if overrides.fallback.is_some() {
-        base.fallback.clone_from(&overrides.fallback);
+    if overrides.request_fallback.is_some() {
+        base.request_fallback
+            .clone_from(&overrides.request_fallback);
+    }
+    if overrides.response_fallback.is_some() {
+        base.response_fallback
+            .clone_from(&overrides.response_fallback);
     }
     if !overrides.request_rules.is_empty() {
         let mut rules = overrides.request_rules.clone();

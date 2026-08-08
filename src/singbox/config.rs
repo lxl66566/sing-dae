@@ -27,10 +27,14 @@ pub struct SingBoxConfig {
     pub experimental: Option<serde_json::Value>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Log {
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     pub level: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub output: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timestamp: Option<bool>,
 }
@@ -43,12 +47,24 @@ pub struct Dns {
     pub rules: Vec<DnsRule>,
     #[serde(rename = "final", default, skip_serializing_if = "Option::is_none")]
     pub final_dns: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub strategy: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub disable_cache: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub independent_cache: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reverse_mapping: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cache_capacity: Option<u32>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct DnsServer {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub server: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server_port: Option<u16>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
     #[serde(rename = "type", default, skip_serializing_if = "Option::is_none")]
@@ -154,6 +170,18 @@ pub struct Outbound {
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub outbounds: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default: Option<String>,
+
+    // urltest fields
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub interval: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tolerance: Option<u16>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_timeout: Option<String>,
 
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub domain_resolver: Option<String>,
@@ -169,6 +197,46 @@ pub struct TlsConfig {
     pub insecure: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alpn: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub min_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_version: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cipher_suites: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub utls: Option<UtlsConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reality: Option<RealityConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ech: Option<EchConfig>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct UtlsConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fingerprint: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct RealityConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub public_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub short_id: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct EchConfig {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub enabled: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub config_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
@@ -183,6 +251,14 @@ pub struct Route {
     pub default_domain_resolver: Option<serde_json::Value>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_http_client: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub auto_detect_interface: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_interface: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub default_mark: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub find_process: Option<bool>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,12 +285,20 @@ pub struct RouteRule {
     pub clash_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ip_is_private: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_ip_is_private: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ip_version: Option<u32>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub network: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub port: Vec<u16>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub port_range: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_port: Vec<u16>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_port_range: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub domain: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -226,6 +310,8 @@ pub struct RouteRule {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub ip_cidr: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub source_ip_cidr: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub process_name: Vec<String>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub protocol: Vec<String>,
@@ -235,7 +321,7 @@ pub struct RouteRule {
     pub rules: Vec<RouteRule>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct RuleSet {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
@@ -247,4 +333,8 @@ pub struct RuleSet {
     pub path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub download_detour: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub update_interval: Option<String>,
 }

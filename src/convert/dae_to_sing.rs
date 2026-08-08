@@ -12,7 +12,7 @@ use crate::{
     error::Result,
     singbox::config::{
         Dns, DnsRule, DnsServer, HttpClient, Inbound, Log, Outbound, Route, RouteRule, RuleSet,
-        SingBoxConfig,
+        SingBoxConfig, UtlsConfig,
     },
 };
 
@@ -40,6 +40,7 @@ pub fn convert(dae: &DaeConfig, opts: &ConvertOptions) -> Result<SingBoxConfig> 
 
     let mut outbounds = Vec::new();
     outbounds.extend(node_outbounds);
+    apply_global_tls(dae, &mut outbounds);
     outbounds.push(Outbound {
         outbound_type: "direct".into(),
         tag: Some("direct".into()),
@@ -87,7 +88,50 @@ fn build_log(dae: &DaeConfig) -> Option<Log> {
         .map(|kv| Log {
             level: Some(kv.value.clone()),
             timestamp: Some(true),
+            ..Default::default()
         })
+}
+
+/// Apply global TLS settings from the `global` section to all proxy outbounds:
+/// - `tls_implementation: utls` + `utls_imitate: <fingerprint>` → TLS utls
+///   block
+/// - `allow_insecure: true` → TLS insecure (only if not explicitly set
+///   per-node)
+fn apply_global_tls(dae: &DaeConfig, outbounds: &mut [Outbound]) {
+    let utls_imitate = dae
+        .global
+        .iter()
+        .find(|kv| kv.key == "tls_implementation" && kv.value == "utls")
+        .and_then(|_| {
+            dae.global
+                .iter()
+                .find(|kv| kv.key == "utls_imitate")
+                .map(|kv| kv.value.clone())
+        });
+
+    let allow_insecure = dae
+        .global
+        .iter()
+        .find(|kv| kv.key == "allow_insecure")
+        .map(|kv| kv.value == "true");
+
+    for ob in outbounds.iter_mut() {
+        if !protocol::is_proxy_type(&ob.outbound_type) {
+            continue;
+        }
+        let tls = ob.tls.get_or_insert_with(Default::default);
+        if let Some(ref fp) = utls_imitate
+            && tls.utls.is_none()
+        {
+            tls.utls = Some(UtlsConfig {
+                enabled: Some(true),
+                fingerprint: Some(fp.clone()),
+            });
+        }
+        if matches!(allow_insecure, Some(true)) && tls.insecure.is_none() {
+            tls.insecure = Some(true);
+        }
+    }
 }
 
 fn build_default_inbounds() -> Vec<Inbound> {
@@ -251,7 +295,7 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
         }
     }
 
-    let mut final_dns = dae.dns.fallback.clone();
+    let mut final_dns = dae.dns.request_fallback.clone();
     let mut rules = Vec::new();
 
     // must_direct DNS rules come first — they take priority over normal DNS
@@ -290,6 +334,7 @@ fn build_dns(dae: &DaeConfig) -> Option<Dns> {
         servers,
         rules,
         final_dns,
+        ..Default::default()
     })
 }
 
@@ -316,14 +361,13 @@ fn build_must_direct_dns_rules(dae: &DaeConfig) -> Vec<DnsRule> {
             server: Some("dns-direct".into()),
             ..Default::default()
         };
-        for arg in &args {
-            if let Some(name) = arg.strip_prefix("geosite:") {
-                dns_rule.rule_set.push(format!("geosite-{name}"));
-            } else {
-                dns_rule.domain_suffix.push(arg.clone());
-            }
-        }
-        if !dns_rule.rule_set.is_empty() || !dns_rule.domain_suffix.is_empty() {
+        categorize_dns_domain_args(&args, &mut dns_rule);
+        if !dns_rule.rule_set.is_empty()
+            || !dns_rule.domain_suffix.is_empty()
+            || !dns_rule.domain.is_empty()
+            || !dns_rule.domain_keyword.is_empty()
+            || !dns_rule.domain_regex.is_empty()
+        {
             rules.push(dns_rule);
         }
     }
@@ -346,6 +390,26 @@ fn is_domain_address(addr: Option<&str>) -> bool {
         && !is_ip_address(addr)
 }
 
+/// Categorize dae domain-style args (geosite/full/keyword/regex/suffix/plain)
+/// into sing-box DnsRule match fields.
+fn categorize_dns_domain_args(args: &[String], rule: &mut DnsRule) {
+    for arg in args {
+        if let Some(name) = arg.strip_prefix("geosite:") {
+            rule.rule_set.push(format!("geosite-{name}"));
+        } else if let Some(v) = arg.strip_prefix("full:") {
+            rule.domain.push(clean_quoted(v));
+        } else if let Some(v) = arg.strip_prefix("keyword:") {
+            rule.domain_keyword.push(clean_quoted(v));
+        } else if let Some(v) = arg.strip_prefix("regex:") {
+            rule.domain_regex.push(clean_quoted(v));
+        } else if let Some(v) = arg.strip_prefix("suffix:") {
+            rule.domain_suffix.push(clean_quoted(v));
+        } else {
+            rule.domain_suffix.push(arg.clone());
+        }
+    }
+}
+
 fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
     let condition = rule.condition.trim();
     let target = rule.target.trim();
@@ -361,20 +425,23 @@ fn convert_dns_rule(rule: &RoutingRule) -> DnsRule {
             dns_rule.server = Some(target.to_string());
         }
 
-        for arg in &args {
-            if let Some(name) = arg.strip_prefix("geosite:") {
-                dns_rule.rule_set.push(format!("geosite-{name}"));
-            } else if let Some(name) = arg.strip_prefix("full:") {
-                dns_rule.domain.push(clean_quoted(name));
-            } else if let Some(name) = arg.strip_prefix("keyword:") {
-                dns_rule.domain_keyword.push(clean_quoted(name));
-            } else if let Some(name) = arg.strip_prefix("regex:") {
-                dns_rule.domain_regex.push(clean_quoted(name));
-            } else if let Some(name) = arg.strip_prefix("suffix:") {
-                dns_rule.domain_suffix.push(clean_quoted(name));
-            } else {
-                dns_rule.domain_suffix.push(arg.clone());
-            }
+        categorize_dns_domain_args(&args, &mut dns_rule);
+        return dns_rule;
+    }
+
+    if let Some(args_str) = extract_paren_args(condition, "qtype") {
+        let args = parse_comma_args(args_str);
+        let mut dns_rule = DnsRule::default();
+        if target == "reject" || target == "asis" {
+            dns_rule.action = Some("predefined".to_string());
+            dns_rule.rcode = Some("NOERROR".to_string());
+        } else {
+            dns_rule.server = Some(target.to_string());
+        }
+        for a in &args {
+            dns_rule
+                .query_type
+                .push(serde_json::Value::String(a.to_uppercase()));
         }
         return dns_rule;
     }
@@ -452,6 +519,7 @@ fn resolve_domain_resolver(dns: &mut Option<Dns>, outbounds: &[Outbound]) -> Opt
                 servers: vec![local_server],
                 rules: vec![],
                 final_dns: None,
+                ..Default::default()
             });
         }
     }
@@ -517,6 +585,7 @@ fn build_route(
         final_outbound: dae.routing.fallback.clone(),
         default_domain_resolver: domain_resolver_tag.map(serde_json::Value::String),
         default_http_client,
+        ..Default::default()
     })
 }
 
@@ -524,45 +593,135 @@ fn convert_routing_rule(rule: &RoutingRule) -> RouteRule {
     let condition = rule.condition.trim();
     let target = resolve_target(rule.target.trim());
 
-    if let Some(args_str) = extract_paren_args(condition, "domain") {
-        let args = parse_comma_args(args_str);
-        let (rule_set, domain_suffix) = categorize_domain_args(&args);
-        return RouteRule {
-            outbound: target.outbound,
-            action: target.action,
-            rule_set,
-            domain_suffix,
-            ..Default::default()
-        };
-    }
-
-    if let Some(args_str) = extract_paren_args(condition, "dip") {
-        let args = parse_comma_args(args_str);
-        let (ip_is_private, rule_set, ip_cidr) = categorize_dip_args(&args);
-        return RouteRule {
-            outbound: target.outbound,
-            action: target.action,
-            ip_is_private,
-            rule_set,
-            ip_cidr,
-            ..Default::default()
-        };
-    }
-
-    if let Some(args_str) = extract_paren_args(condition, "pname") {
-        let args = parse_comma_args(args_str);
-        return RouteRule {
-            outbound: target.outbound,
-            action: target.action,
-            process_name: args,
-            ..Default::default()
-        };
-    }
-
-    RouteRule {
+    let mut result = RouteRule {
         outbound: target.outbound,
         action: target.action,
         ..Default::default()
+    };
+
+    for func in parse_condition_functions(condition) {
+        apply_route_function(&mut result, &func.name, &func.args, func.negated);
+    }
+
+    result
+}
+
+/// A parsed function call from a dae routing condition.
+struct ParsedFunction {
+    name: String,
+    args: Vec<String>,
+    negated: bool,
+}
+
+/// Split a dae condition into individual function calls joined by `&&`.
+/// Each function is returned with its name, arguments, and whether it is
+/// negated with a leading `!`.
+fn parse_condition_functions(condition: &str) -> Vec<ParsedFunction> {
+    condition
+        .split("&&")
+        .filter_map(|part| {
+            let part = part.trim();
+            let (negated, body) = if let Some(rest) = part.strip_prefix('!') {
+                (true, rest.trim())
+            } else {
+                (false, part)
+            };
+            let start = body.find('(')?;
+            let end = body.rfind(')')?;
+            if end <= start {
+                return None;
+            }
+            let name = body[..start].trim().to_owned();
+            let args = parse_comma_args(&body[start + 1..end]);
+            Some(ParsedFunction {
+                name,
+                args,
+                negated,
+            })
+        })
+        .collect()
+}
+
+/// Apply a single routing function's arguments to a sing-box RouteRule.
+fn apply_route_function(rule: &mut RouteRule, name: &str, args: &[String], negated: bool) {
+    // Negated conditions cannot be expressed in a sing-box default rule;
+    // skip them to avoid producing incorrect (over-broad or wrong) matches.
+    if negated {
+        return;
+    }
+
+    match name {
+        "domain" => {
+            categorize_domain_args_into(args, rule);
+        }
+        "dip" | "ip" => {
+            categorize_dip_args_into(args, rule);
+        }
+        "sip" => {
+            categorize_sip_args_into(args, rule);
+        }
+        "pname" => {
+            rule.process_name.extend(args.iter().cloned());
+        }
+        "l4proto" => {
+            for a in args {
+                let proto = a.trim().to_lowercase();
+                if !rule.network.contains(&proto) {
+                    rule.network.push(proto);
+                }
+            }
+        }
+        "dport" | "port" => {
+            for a in args {
+                if let Some((lo, hi)) = parse_port_range(a) {
+                    if lo == hi {
+                        push_u16(&mut rule.port, lo);
+                    } else {
+                        rule.port_range.push(format!("{lo}-{hi}"));
+                    }
+                }
+            }
+        }
+        "sport" => {
+            for a in args {
+                if let Some((lo, hi)) = parse_port_range(a) {
+                    if lo == hi {
+                        push_u16(&mut rule.source_port, lo);
+                    } else {
+                        rule.source_port_range.push(format!("{lo}-{hi}"));
+                    }
+                }
+            }
+        }
+        "ipversion" => {
+            if let Some(a) = args.first() {
+                match a.trim() {
+                    "4" => rule.ip_version = Some(4),
+                    "6" => rule.ip_version = Some(6),
+                    _ => {}
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn push_u16(vec: &mut Vec<u16>, val: u16) {
+    if !vec.contains(&val) {
+        vec.push(val);
+    }
+}
+
+/// Parse a dae port spec ("80" or "10080-30000") into (lo, hi).
+fn parse_port_range(spec: &str) -> Option<(u16, u16)> {
+    let spec = spec.trim();
+    if let Some((lo_s, hi_s)) = spec.split_once('-') {
+        let lo: u16 = lo_s.trim().parse().ok()?;
+        let hi: u16 = hi_s.trim().parse().ok()?;
+        Some((lo.min(hi), lo.max(hi)))
+    } else {
+        let v: u16 = spec.parse().ok()?;
+        Some((v, v))
     }
 }
 
@@ -607,19 +766,14 @@ fn collect_rule_set_tags(dae: &DaeConfig) -> HashSet<String> {
 }
 
 fn collect_tags_from_condition(condition: &str, tags: &mut HashSet<String>) {
-    let text = condition.trim();
-
-    for func_name in &["domain", "dip", "qname", "ip"] {
-        if let Some(args_str) = extract_paren_args(text, func_name) {
-            let args = parse_comma_args(args_str);
-            for arg in &args {
-                if let Some(name) = arg.strip_prefix("geosite:") {
-                    tags.insert(format!("geosite-{name}"));
-                } else if let Some(name) = arg.strip_prefix("geoip:")
-                    && name != "private"
-                {
-                    tags.insert(format!("geoip-{name}"));
-                }
+    for func in parse_condition_functions(condition) {
+        for arg in &func.args {
+            if let Some(name) = arg.strip_prefix("geosite:") {
+                tags.insert(format!("geosite-{name}"));
+            } else if let Some(name) = arg.strip_prefix("geoip:")
+                && name != "private"
+            {
+                tags.insert(format!("geoip-{name}"));
             }
         }
     }
@@ -645,6 +799,7 @@ fn build_rule_set(tags: &HashSet<String>) -> Vec<RuleSet> {
                 format: Some("binary".to_string()),
                 path: None,
                 url: Some(url),
+                ..Default::default()
             }
         })
         .collect()
@@ -652,39 +807,57 @@ fn build_rule_set(tags: &HashSet<String>) -> Vec<RuleSet> {
 
 // ---- Argument categorization ----
 
-fn categorize_domain_args(args: &[String]) -> (Vec<String>, Vec<String>) {
-    let mut rule_set = Vec::new();
-    let mut domain_suffix = Vec::new();
-
+/// Categorize `domain()` args into sing-box RouteRule fields.
+fn categorize_domain_args_into(args: &[String], rule: &mut RouteRule) {
     for arg in args {
         if let Some(name) = arg.strip_prefix("geosite:") {
-            rule_set.push(format!("geosite-{name}"));
+            push_unique(&mut rule.rule_set, format!("geosite-{name}"));
         } else if let Some(name) = arg.strip_prefix("geoip:") {
-            rule_set.push(format!("geoip-{name}"));
+            push_unique(&mut rule.rule_set, format!("geoip-{name}"));
+        } else if let Some(v) = arg.strip_prefix("full:") {
+            push_unique(&mut rule.domain, clean_quoted(v));
+        } else if let Some(v) = arg.strip_prefix("keyword:") {
+            push_unique(&mut rule.domain_keyword, clean_quoted(v));
+        } else if let Some(v) = arg.strip_prefix("regex:") {
+            push_unique(&mut rule.domain_regex, clean_quoted(v));
+        } else if let Some(v) = arg.strip_prefix("suffix:") {
+            push_unique(&mut rule.domain_suffix, clean_quoted(v));
         } else {
-            domain_suffix.push(arg.clone());
+            push_unique(&mut rule.domain_suffix, arg.clone());
         }
     }
-
-    (rule_set, domain_suffix)
 }
 
-fn categorize_dip_args(args: &[String]) -> (Option<bool>, Vec<String>, Vec<String>) {
-    let mut ip_is_private = None;
-    let mut rule_set = Vec::new();
-    let mut ip_cidr = Vec::new();
-
+/// Categorize `dip()`/`ip()` args into sing-box RouteRule fields.
+fn categorize_dip_args_into(args: &[String], rule: &mut RouteRule) {
     for arg in args {
         if arg == "geoip:private" {
-            ip_is_private = Some(true);
+            rule.ip_is_private = Some(true);
         } else if let Some(name) = arg.strip_prefix("geoip:") {
-            rule_set.push(format!("geoip-{name}"));
+            push_unique(&mut rule.rule_set, format!("geoip-{name}"));
         } else {
-            ip_cidr.push(arg.clone());
+            push_unique(&mut rule.ip_cidr, arg.clone());
         }
     }
+}
 
-    (ip_is_private, rule_set, ip_cidr)
+/// Categorize `sip()` args into sing-box RouteRule source fields.
+fn categorize_sip_args_into(args: &[String], rule: &mut RouteRule) {
+    for arg in args {
+        if arg == "geoip:private" {
+            rule.source_ip_is_private = Some(true);
+        } else if let Some(name) = arg.strip_prefix("geoip:") {
+            push_unique(&mut rule.rule_set, format!("geoip-{name}"));
+        } else {
+            push_unique(&mut rule.source_ip_cidr, arg.clone());
+        }
+    }
+}
+
+fn push_unique(vec: &mut Vec<String>, val: String) {
+    if !vec.contains(&val) {
+        vec.push(val);
+    }
 }
 
 #[cfg(test)]
@@ -974,7 +1147,7 @@ mod tests {
                         target: "reject".into(),
                     },
                 ],
-                fallback: Some("googledns".to_string()),
+                request_fallback: Some("googledns".to_string()),
                 ..DnsSection::default()
             },
             ..DaeConfig::default()
@@ -1305,5 +1478,223 @@ mod tests {
             .find(|s| s.tag.as_deref() == Some("dns-local"));
         assert!(local.is_some(), "dns-local server should exist");
         assert_eq!(local.unwrap().dns_type.as_deref(), Some("local"));
+    }
+
+    #[test]
+    fn route_domain_with_keyword_regex_full() {
+        let dae = DaeConfig {
+            routing: RoutingSection {
+                rules: vec![RoutingRule {
+                    condition:
+                        "domain(keyword:ad, regex:'\\.cn$', full:exact.com, suffix:co.uk, geosite:cn)"
+                            .into(),
+                    target: "direct".into(),
+                }],
+                fallback: None,
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let r = &cfg.route.unwrap().rules[0];
+        assert_eq!(r.domain, vec!["exact.com"]);
+        assert_eq!(r.domain_keyword, vec!["ad"]);
+        assert_eq!(r.domain_regex, vec!["\\.cn$"]);
+        assert_eq!(r.domain_suffix, vec!["co.uk"]);
+        assert_eq!(r.rule_set, vec!["geosite-cn"]);
+    }
+
+    #[test]
+    fn route_sip_condition() {
+        let dae = DaeConfig {
+            routing: RoutingSection {
+                rules: vec![RoutingRule {
+                    condition: "sip(geoip:private, 192.168.0.0/24)".into(),
+                    target: "direct".into(),
+                }],
+                fallback: None,
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let r = &cfg.route.unwrap().rules[0];
+        assert_eq!(r.source_ip_is_private, Some(true));
+        assert_eq!(r.source_ip_cidr, vec!["192.168.0.0/24"]);
+    }
+
+    #[test]
+    fn route_l4proto_dport_and() {
+        let dae = DaeConfig {
+            routing: RoutingSection {
+                rules: vec![RoutingRule {
+                    condition: "l4proto(udp) && dport(443)".into(),
+                    target: "block".into(),
+                }],
+                fallback: None,
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let r = &cfg.route.unwrap().rules[0];
+        assert_eq!(r.network, vec!["udp"]);
+        assert_eq!(r.port, vec![443]);
+        assert_eq!(r.action.as_deref(), Some("reject"));
+    }
+
+    #[test]
+    fn route_dport_range() {
+        let dae = DaeConfig {
+            routing: RoutingSection {
+                rules: vec![RoutingRule {
+                    condition: "dport(10080-30000)".into(),
+                    target: "direct".into(),
+                }],
+                fallback: None,
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let r = &cfg.route.unwrap().rules[0];
+        assert_eq!(r.port_range, vec!["10080-30000"]);
+    }
+
+    #[test]
+    fn route_sport_condition() {
+        let dae = DaeConfig {
+            routing: RoutingSection {
+                rules: vec![RoutingRule {
+                    condition: "sport(53)".into(),
+                    target: "direct".into(),
+                }],
+                fallback: None,
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let r = &cfg.route.unwrap().rules[0];
+        assert_eq!(r.source_port, vec![53]);
+    }
+
+    #[test]
+    fn route_ipversion_condition() {
+        let dae = DaeConfig {
+            routing: RoutingSection {
+                rules: vec![RoutingRule {
+                    condition: "ipversion(6)".into(),
+                    target: "direct".into(),
+                }],
+                fallback: None,
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let r = &cfg.route.unwrap().rules[0];
+        assert_eq!(r.ip_version, Some(6));
+    }
+
+    #[test]
+    fn route_combined_and_conditions() {
+        let dae = DaeConfig {
+            routing: RoutingSection {
+                rules: vec![RoutingRule {
+                    condition: "dip(geoip:private) && dport(53)".into(),
+                    target: "direct".into(),
+                }],
+                fallback: None,
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let r = &cfg.route.unwrap().rules[0];
+        assert!(r.ip_is_private.unwrap_or(false));
+        assert_eq!(r.port, vec![53]);
+    }
+
+    #[test]
+    fn route_negated_condition_skipped() {
+        let dae = DaeConfig {
+            routing: RoutingSection {
+                rules: vec![RoutingRule {
+                    condition: "domain(geosite:geolocation-!cn) && !domain(geosite:google-scholar)"
+                        .into(),
+                    target: "proxy".into(),
+                }],
+                fallback: None,
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let r = &cfg.route.unwrap().rules[0];
+        // The positive domain condition is applied; the negated one is dropped.
+        assert_eq!(r.rule_set, vec!["geosite-geolocation-!cn"]);
+        assert_eq!(r.outbound.as_deref(), Some("proxy"));
+    }
+
+    #[test]
+    fn dns_qtype_rule() {
+        let dae = DaeConfig {
+            dns: DnsSection {
+                upstream: vec![KeyValue {
+                    key: "mydns".into(),
+                    value: "udp://1.1.1.1:53".into(),
+                }],
+                request_rules: vec![RoutingRule {
+                    condition: "qtype(https)".into(),
+                    target: "reject".into(),
+                }],
+                ..DnsSection::default()
+            },
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let rule = &cfg.dns.unwrap().rules[0];
+        assert_eq!(rule.action.as_deref(), Some("predefined"));
+        assert_eq!(rule.query_type.len(), 1);
+        assert_eq!(rule.query_type[0].as_str().unwrap(), "HTTPS");
+    }
+
+    #[test]
+    fn global_utls_applied_to_outbounds() {
+        let dae = DaeConfig {
+            global: vec![
+                KeyValue {
+                    key: "tls_implementation".into(),
+                    value: "utls".into(),
+                },
+                KeyValue {
+                    key: "utls_imitate".into(),
+                    value: "chrome".into(),
+                },
+            ],
+            nodes: vec![Entry::Tagged {
+                key: "my-hy".into(),
+                value: "hy2://pass@1.2.3.4:443/?sni=example.com".into(),
+            }],
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let ob = &cfg.outbounds[0];
+        let tls = ob.tls.as_ref().unwrap();
+        let utls = tls.utls.as_ref().unwrap();
+        assert_eq!(utls.enabled, Some(true));
+        assert_eq!(utls.fingerprint.as_deref(), Some("chrome"));
+    }
+
+    #[test]
+    fn global_allow_insecure_applied() {
+        let dae = DaeConfig {
+            global: vec![KeyValue {
+                key: "allow_insecure".into(),
+                value: "true".into(),
+            }],
+            nodes: vec![Entry::Tagged {
+                key: "my-hy".into(),
+                value: "hy2://pass@1.2.3.4:443/?sni=example.com".into(),
+            }],
+            ..DaeConfig::default()
+        };
+        let cfg = convert(&dae, &STABLE).unwrap();
+        let ob = &cfg.outbounds[0];
+        let tls = ob.tls.as_ref().unwrap();
+        assert_eq!(tls.insecure, Some(true));
     }
 }

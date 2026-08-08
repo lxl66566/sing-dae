@@ -133,10 +133,12 @@ fn parse_dns_section(pair: pest::iterators::Pair<Rule>) -> ast::DnsSection {
                         Rule::request_block => {
                             let (rules, fallback) = parse_dns_routing_block(rc);
                             section.request_rules = rules;
-                            section.fallback = fallback;
+                            section.request_fallback = fallback;
                         }
                         Rule::response_block => {
-                            section.response_rules = parse_dns_routing_rules(rc);
+                            let (rules, fallback) = parse_dns_routing_block(rc);
+                            section.response_rules = rules;
+                            section.response_fallback = fallback;
                         }
                         _ => {}
                     }
@@ -147,13 +149,6 @@ fn parse_dns_section(pair: pest::iterators::Pair<Rule>) -> ast::DnsSection {
     }
 
     section
-}
-
-fn parse_dns_routing_rules(pair: pest::iterators::Pair<Rule>) -> Vec<ast::RoutingRule> {
-    pair.into_inner()
-        .filter(|p| p.as_rule() == Rule::dns_routing_rule)
-        .map(|p| parse_routing_rule(p))
-        .collect()
 }
 
 fn parse_dns_routing_block(

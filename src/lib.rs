@@ -17,10 +17,7 @@ pub fn dae_to_singbox(dae_text: &str) -> Result<String> {
     dae_to_singbox_with_opts(dae_text, &ConvertOptions::default())
 }
 
-pub fn dae_to_singbox_with_opts(
-    dae_text: &str,
-    opts: &ConvertOptions,
-) -> Result<String> {
+pub fn dae_to_singbox_with_opts(dae_text: &str, opts: &ConvertOptions) -> Result<String> {
     let value = dae_to_singbox_value_with_opts(dae_text, opts)?;
     serde_json::to_string_pretty(&value).map_err(Into::into)
 }
@@ -49,10 +46,7 @@ pub fn singbox_to_dae(singbox_json: &str) -> Result<String> {
     singbox_to_dae_with_opts(singbox_json, &ConvertOptions::default())
 }
 
-pub fn singbox_to_dae_with_opts(
-    singbox_json: &str,
-    opts: &ConvertOptions,
-) -> Result<String> {
+pub fn singbox_to_dae_with_opts(singbox_json: &str, opts: &ConvertOptions) -> Result<String> {
     let dae_config = singbox_to_dae_value_with_opts(singbox_json, opts)?;
     Ok(dae::serializer::serialize(&dae_config))
 }

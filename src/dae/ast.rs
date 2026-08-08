@@ -36,10 +36,12 @@ pub struct DnsSection {
     pub upstream: Vec<KeyValue>,
     #[serde(default)]
     pub request_rules: Vec<RoutingRule>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub request_fallback: Option<String>,
     #[serde(default)]
     pub response_rules: Vec<RoutingRule>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback: Option<String>,
+    pub response_fallback: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
